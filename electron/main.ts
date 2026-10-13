@@ -4,11 +4,12 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { spawn, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import os from 'node:os'
 import {
   IPC, fail, ok,
-  type IpcResult, type RecoveryInfo, type RenderPlan,
+  type ExportPayload, type IpcResult, type RecoveryInfo, type RenderPlan,
 } from '../src/shared/ipc-contract'
-import { RenderPlanSchema } from '../src/shared/render-plan-schema'
+import { ExportPayloadSchema } from '../src/shared/render-plan-schema'
 import { buildRenderArgs } from '../src/shared/render-plan'
 import { FfprobeResultSchema, type FfprobeResult } from '../src/shared/ffprobe'
 import type { Project } from '../src/shared/project-schema'
@@ -186,13 +187,37 @@ async function probeHasAudio(filePath: string): Promise<boolean> {
 }
 
 // IPC: export video with FFmpeg from a compiled RenderPlan.
-ipcMain.handle(IPC.mediaExport, async (_, plan: RenderPlan): Promise<IpcResult<string>> => {
-  const validated = RenderPlanSchema.safeParse(plan)
+ipcMain.handle(IPC.mediaExport, async (_, payload: ExportPayload): Promise<IpcResult<string>> => {
+  const validated = ExportPayloadSchema.safeParse(payload)
   if (!validated.success) {
     const issue = validated.error.issues[0]
-    return fail('E_VALIDATION', `render plan invalid at "${issue.path.join('.')}"`)
+    return fail('E_VALIDATION', `export payload invalid at "${issue.path.join('.')}"`)
   }
-  const render = validated.data as RenderPlan
+  const render = validated.data.plan as RenderPlan
+  const overlayImages = validated.data.overlayImages
+  if (overlayImages.length !== render.overlays.length) {
+    return fail('E_VALIDATION', 'overlay image count does not match the plan')
+  }
+
+  // Rasterized text layers arrive as base64 and become temp PNG inputs.
+  const tmpDir = path.join(os.tmpdir(), `capjul-export-${process.pid}-${Date.now()}`)
+  const cleanupTmp = () => {
+    fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+  }
+  try {
+    if (overlayImages.length) {
+      await fs.promises.mkdir(tmpDir, { recursive: true })
+      for (let i = 0; i < overlayImages.length; i++) {
+        const file = path.join(tmpDir, `overlay-${i}.png`)
+        await fs.promises.writeFile(file, Buffer.from(overlayImages[i], 'base64'))
+        render.overlays[i] = { ...render.overlays[i], png: file }
+      }
+    }
+  } catch (err) {
+    cleanupTmp()
+    const mapped = mapFsError(err)
+    return fail(mapped.code, mapped.message)
+  }
 
   for (const input of render.inputs) {
     input.hasAudio = await probeHasAudio(input.path)
@@ -206,7 +231,10 @@ ipcMain.handle(IPC.mediaExport, async (_, plan: RenderPlan): Promise<IpcResult<s
     ],
     defaultPath: `export_${Date.now()}.${render.output.format}`,
   })
-  if (result.canceled || !result.filePath) return fail('E_CANCELLED', 'export cancelled')
+  if (result.canceled || !result.filePath) {
+    cleanupTmp()
+    return fail('E_CANCELLED', 'export cancelled')
+  }
   const outputPath = result.filePath
 
   return new Promise<IpcResult<string>>((resolve) => {
@@ -223,11 +251,13 @@ ipcMain.handle(IPC.mediaExport, async (_, plan: RenderPlan): Promise<IpcResult<s
     })
 
     proc.on('error', (err) => {
+      cleanupTmp()
       const missing = (err as NodeJS.ErrnoException).code === 'ENOENT'
       resolve(fail(missing ? 'E_FFMPEG_MISSING' : 'E_EXPORT_FAILED', err.message))
     })
 
     proc.on('close', (code: number) => {
+      cleanupTmp()
       if (code === 0) {
         mainWindow?.webContents.send(IPC.exportProgress, 100)
         resolve(ok(outputPath))

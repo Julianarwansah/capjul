@@ -51,6 +51,12 @@ export interface RecoveryInfo {
   name: string
 }
 
+export interface ExportPayload {
+  plan: RenderPlan
+  /** Base64 PNGs, index-aligned with plan.overlays. Main writes them to temp files. */
+  overlayImages: string[]
+}
+
 export interface ElectronApi {
   getPathForFile: (file: File) => string
   openMedia: () => Promise<IpcResult<string[]>>
@@ -60,6 +66,6 @@ export interface ElectronApi {
   recoveryInfo: () => Promise<IpcResult<RecoveryInfo | null>>
   restoreAutosave: () => Promise<IpcResult<Project>>
   probeMedia: (path: string) => Promise<IpcResult<FfprobeResult>>
-  exportVideo: (plan: RenderPlan) => Promise<IpcResult<string>>
+  exportVideo: (payload: ExportPayload) => Promise<IpcResult<string>>
   onExportProgress: (cb: (percent: number) => void) => () => void
 }

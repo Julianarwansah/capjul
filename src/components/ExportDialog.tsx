@@ -3,6 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { X, Download, CheckCircle } from 'lucide-react'
 import { useEditorStore } from '../store/editorStore'
 import { compileProject } from '../shared/render-plan'
+import { rasterizeTextClip } from '../shared/text-rasterizer'
 
 const RESOLUTIONS = [
   { label: '4K', width: 3840, height: 2160, bitrate: '20M' },
@@ -26,6 +27,7 @@ export function ExportDialog() {
   const [audioBitrate, setAudioBitrate] = useState('192k')
   const [done, setDone] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [warning, setWarning] = useState<string | null>(null)
 
   const res = RESOLUTIONS.find(r => r.label === resolution)!
 
@@ -49,6 +51,11 @@ export function ExportDialog() {
     setDone(false)
     setExportProgress(0)
     setIsExporting(true)
+    setWarning(
+      project.stickerClips.length > 0
+        ? 'Stickers are preview-only for now and will not appear in the export (tech debt D2).'
+        : null,
+    )
 
     const cleanup = api.onExportProgress(setExportProgress)
 
@@ -58,7 +65,19 @@ export function ExportDialog() {
       plan.width = res.width
       plan.height = res.height
       plan.fps = fps
-      const exported = await api.exportVideo(plan)
+
+      // Text is rasterized here, in the renderer, because system FFmpeg has no
+      // drawtext. Stickers cannot be rasterized on canvas at all (tech debt D2).
+      const textClips = project.textClips.filter(t => t.duration > 0)
+      plan.overlays = textClips.map((t, i) => ({
+        png: '',
+        z: 1000 + i,
+        start: t.startTime,
+        end: t.startTime + t.duration,
+      }))
+      const overlayImages = textClips.map(t => rasterizeTextClip(t, plan.width, plan.height))
+
+      const exported = await api.exportVideo({ plan, overlayImages })
       if (!exported.ok) {
         // Dismissing the save dialog is a choice, not a failure.
         if (exported.error.code !== 'E_CANCELLED') setError(exported.error.message)
@@ -227,6 +246,16 @@ export function ExportDialog() {
                     {done && <CheckCircle size={14} style={{ color: '#4ade80' }} />}
                   </div>
                 </div>
+              )}
+
+              {/* Warning */}
+              {warning && (
+                <p
+                  className="text-xs p-3 rounded"
+                  style={{ background: 'var(--color-bg-surface)', color: 'var(--color-text-secondary)' }}
+                >
+                  {warning}
+                </p>
               )}
 
               {/* Error */}

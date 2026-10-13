@@ -51,3 +51,10 @@ export const RenderPlanSchema = z.object({
     audioBitrate: z.string(),
   }),
 })
+
+export const ExportPayloadSchema = z.object({
+  plan: RenderPlanSchema,
+  // Base64 PNGs, index-aligned with plan.overlays. Capped: a 1080p mostly
+  // transparent layer compresses to well under this.
+  overlayImages: z.array(z.string().max(4_000_000)).max(64),
+})
