@@ -18,9 +18,6 @@ declare global {
       openProject: () => Promise<string | null>
       probeMedia: (path: string) => Promise<FfprobeResult | null>
       exportVideo: (options: ExportOptions) => Promise<string | null>
-      readFileAsDataURL: (path: string) => Promise<string>
-      getTempDir: () => Promise<string>
-      showInFolder: (path: string) => Promise<void>
       onExportProgress: (cb: (progress: number) => void) => (() => void) | undefined
     }
   }

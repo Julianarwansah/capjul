@@ -1,10 +1,9 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, protocol } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, protocol } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
 import { spawn, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import os from 'node:os'
 
 const execFileAsync = promisify(execFile)
 
@@ -149,33 +148,6 @@ ipcMain.handle('ffmpeg:export', async (_, options: ExportOptions) => {
       }
     })
   })
-})
-
-// IPC: Read file as data URL
-ipcMain.handle('fs:readFileAsDataURL', async (_, filePath: string) => {
-  const buffer = fs.readFileSync(filePath)
-  const ext = path.extname(filePath).slice(1).toLowerCase()
-  const mimeTypes: Record<string, string> = {
-    mp4: 'video/mp4', mov: 'video/quicktime', avi: 'video/x-msvideo',
-    mkv: 'video/x-matroska', webm: 'video/webm',
-    mp3: 'audio/mpeg', wav: 'audio/wav', aac: 'audio/aac', m4a: 'audio/mp4',
-    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
-    gif: 'image/gif', webp: 'image/webp',
-  }
-  const mime = mimeTypes[ext] || 'application/octet-stream'
-  return `data:${mime};base64,${buffer.toString('base64')}`
-})
-
-// IPC: Get temp dir
-ipcMain.handle('app:getTempDir', () => {
-  const dir = path.join(os.tmpdir(), 'capjul')
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-  return dir
-})
-
-// IPC: Open in finder
-ipcMain.handle('shell:showItemInFolder', (_, filePath: string) => {
-  shell.showItemInFolder(filePath)
 })
 
 interface ExportOptions {
