@@ -6,12 +6,12 @@ import { spawn, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import {
   IPC, fail, ok,
-  type ExportRequest, type IpcResult,
+  type ExportRequest, type IpcResult, type RecoveryInfo,
 } from '../src/shared/ipc-contract'
 import { ExportRequestSchema } from '../src/shared/export-request'
 import { FfprobeResultSchema, type FfprobeResult } from '../src/shared/ffprobe'
 import type { Project } from '../src/shared/project-schema'
-import { getLastSavedPath, mapFsError, readProjectFile, writeProjectFile } from './project-store'
+import { getLastSavedPath, mapFsError, readProjectFile, recoveryInfo, restoreAutosave, writeAutosave, writeProjectFile } from './project-store'
 
 const execFileAsync = promisify(execFile)
 
@@ -99,6 +99,20 @@ ipcMain.handle(IPC.projectOpen, async (): Promise<IpcResult<Project>> => {
   })
   if (result.canceled || !result.filePaths[0]) return fail('E_CANCELLED', 'open cancelled')
   return readProjectFile(result.filePaths[0])
+})
+
+// IPC: autosave slot and crash recovery. The slot lives in userData and is
+// never the user's document.
+ipcMain.handle(IPC.projectAutosave, async (_, project: Project): Promise<IpcResult<{ at: number }>> => {
+  return writeAutosave(project)
+})
+
+ipcMain.handle(IPC.projectRecovery, async (): Promise<IpcResult<RecoveryInfo | null>> => {
+  return recoveryInfo()
+})
+
+ipcMain.handle(IPC.projectRestore, async (): Promise<IpcResult<Project>> => {
+  return restoreAutosave()
 })
 
 // IPC: probe media info with ffprobe.

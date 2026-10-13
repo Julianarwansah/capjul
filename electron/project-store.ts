@@ -1,8 +1,10 @@
 import fs from 'node:fs/promises'
+import fsSync from 'node:fs'
+import path from 'node:path'
 import { app } from 'electron'
 import { ProjectSchema, type Project } from '../src/shared/project-schema'
 import { parseProjectFile, serializeProjectFile } from '../src/shared/project-codec'
-import { fail, ok, type ErrorCode, type IpcResult } from '../src/shared/ipc-contract'
+import { fail, ok, type ErrorCode, type IpcResult, type RecoveryInfo } from '../src/shared/ipc-contract'
 
 let lastSavedPath: string | null = null
 
@@ -75,5 +77,67 @@ export async function writeProjectFile(filePath: string, project: Project): Prom
     return fail(mapped.code, mapped.message)
   }
   lastSavedPath = filePath
+  // The document on disk is now at least as fresh as the autosave slot.
+  await clearAutosave()
   return ok(filePath)
 }
+
+// --- autosave slot: a second copy in userData, never the user's file ---
+
+export function autosavePath(): string {
+  return path.join(app.getPath('userData'), 'autosave.cjp')
+}
+
+export async function writeAutosave(project: Project): Promise<IpcResult<{ at: number }>> {
+  const validated = ProjectSchema.safeParse(project)
+  if (!validated.success) return fail('E_VALIDATION', 'autosave payload failed validation')
+  try {
+    await atomicWrite(autosavePath(), serializeProjectFile(validated.data, app.getVersion()))
+  } catch (err) {
+    const mapped = mapFsError(err)
+    return fail(mapped.code, mapped.message)
+  }
+  return ok({ at: Date.now() })
+}
+
+export async function recoveryInfo(): Promise<IpcResult<RecoveryInfo | null>> {
+  try {
+    const [stat, text] = await Promise.all([
+      fs.stat(autosavePath()),
+      fs.readFile(autosavePath(), 'utf-8'),
+    ])
+    const parsed = parseProjectFile(text)
+    // An unreadable autosave is not an error and must never block startup.
+    if (!parsed.ok) return ok(null)
+    return ok({ at: stat.mtimeMs, name: parsed.project.name })
+  } catch {
+    return ok(null)
+  }
+}
+
+export async function restoreAutosave(): Promise<IpcResult<Project>> {
+  let text: string
+  try {
+    text = await fs.readFile(autosavePath(), 'utf-8')
+  } catch (err) {
+    const mapped = mapFsError(err)
+    return fail(mapped.code, mapped.message)
+  }
+  const parsed = parseProjectFile(text)
+  if (!parsed.ok) return fail(parsed.code, parsed.message)
+  return ok(parsed.project)
+}
+
+export async function clearAutosave(): Promise<void> {
+  await fs.rm(autosavePath(), { force: true })
+}
+
+// A clean quit means nothing was lost, so the slot goes away. A crash skips
+// this handler entirely, which is exactly when the slot must survive.
+app.on('quit', () => {
+  try {
+    fsSync.rmSync(autosavePath(), { force: true })
+  } catch {
+    // nothing useful to do while shutting down
+  }
+})

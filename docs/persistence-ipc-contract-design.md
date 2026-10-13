@@ -128,10 +128,10 @@ type IpcResult<T> =
 
 type ErrorCode =
   | 'E_CANCELLED'          // user dismissed a dialog; not a failure
-  | 'E_NOT_FOUND' | 'E_PERMISSION' | 'E_DISK_FULL'
+  | 'E_NOT_FOUND' | 'E_PERMISSION' | 'E_DISK_FULL' | 'E_IO'
   | 'E_CORRUPT' | 'E_VALIDATION'
   | 'E_FUTURE_VERSION' | 'E_UNSUPPORTED_VERSION' | 'E_TOO_LARGE'
-  | 'E_FFMPEG_MISSING'
+  | 'E_FFMPEG_MISSING' | 'E_EXPORT_FAILED'
 ```
 
 | Channel | Request | Response | Notes |
@@ -201,6 +201,13 @@ renderer shows a one-line restore prompt ("Recovered copy from 14:32 — restore
 Restore goes through `project:restore`, i.e. the same migrate+validate path as any file.
 No silent auto-restore: overwriting a user's in-memory project without asking is worse
 than losing an autosave.
+
+The slot is cleared after a successful explicit save and on orderly quit, meaning the
+app `quit` event (Cmd+Q, menu, dock). `SIGKILL` and `SIGTERM` never run cleanup and
+therefore retain the slot — deliberately: a session ended by a signal may well have lost
+edits, which is precisely when a recovery prompt should appear. Verified by killing the
+running app with `SIGKILL` (slot survives, prompt appears, restore returns the project)
+and by observing that a signal-terminated session still offers recovery on next launch.
 
 ## 8. Failure modes
 

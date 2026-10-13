@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useRef, useState } from 'react'
 import { TopBar } from './components/TopBar'
 import { LeftPanel } from './components/LeftPanel'
 import { PreviewPanel } from './components/PreviewPanel'
@@ -7,7 +7,7 @@ import { Timeline } from './components/Timeline'
 import { ExportDialog } from './components/ExportDialog'
 import { ProjectSettings } from './components/ProjectSettings'
 import { useEditorStore } from './store/editorStore'
-import type { ElectronApi } from './shared/ipc-contract'
+import type { ElectronApi, RecoveryInfo } from './shared/ipc-contract'
 
 declare global {
   interface Window {
@@ -15,7 +15,71 @@ declare global {
   }
 }
 
+const AUTOSAVE_DEBOUNCE_MS = 5000
+
+// Writes a recovery copy to userData once editing has been idle for a while.
+// The slot never touches the user's document; an explicit save clears it.
+function useAutosave() {
+  const project = useEditorStore(s => s.project)
+  const skipFirst = useRef(true)
+  useEffect(() => {
+    if (skipFirst.current) {
+      skipFirst.current = false
+      return
+    }
+    const timer = setTimeout(() => {
+      window.electronAPI?.autosaveProject(project)
+    }, AUTOSAVE_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [project])
+}
+
+function RecoveryBanner() {
+  const [info, setInfo] = useState<RecoveryInfo | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    window.electronAPI?.recoveryInfo().then(result => {
+      if (alive && result?.ok && result.value) setInfo(result.value)
+    })
+    return () => { alive = false }
+  }, [])
+
+  async function restore() {
+    const result = await window.electronAPI?.restoreAutosave()
+    if (result?.ok) useEditorStore.getState().loadProject(result.value)
+    setInfo(null)
+  }
+
+  async function discard() {
+    // The current state becomes the recovery point, so the prompt stays gone
+    // instead of reappearing on every launch.
+    await window.electronAPI?.autosaveProject(useEditorStore.getState().project)
+    setInfo(null)
+  }
+
+  if (!info) return null
+  return (
+    <div
+      role="alert"
+      className="flex items-center gap-3 px-4 py-2 text-xs shrink-0"
+      style={{
+        background: 'rgba(255,71,87,0.12)',
+        color: 'var(--color-text-primary)',
+        borderBottom: '1px solid var(--color-border)',
+      }}
+    >
+      <span className="flex-1">
+        A recovered copy of “{info.name}” from {new Date(info.at).toLocaleString()} was found. Restore it?
+      </span>
+      <button className="btn-primary" onClick={restore}>Restore</button>
+      <button className="btn-secondary" onClick={discard}>Discard</button>
+    </div>
+  )
+}
+
 export default function App() {
+  useAutosave()
   const {
     showExportDialog, showProjectSettings,
     undo, redo, setIsPlaying, isPlaying,
@@ -81,6 +145,9 @@ export default function App() {
       className="flex flex-col w-full h-full overflow-hidden"
       style={{ background: 'var(--color-bg-base)' }}
     >
+      {/* Crash recovery prompt */}
+      <RecoveryBanner />
+
       {/* Top bar */}
       <TopBar />
 
