@@ -129,6 +129,23 @@ export default function App() {
     } else if (e.code === 'Minus' && mod) {
       e.preventDefault()
       useEditorStore.getState().setZoom(useEditorStore.getState().zoom - 20)
+    } else if (e.code === 'KeyJ') {
+      e.preventDefault()
+      setCurrentTime(Math.max(0, currentTime - (e.shiftKey ? 5 : 1)))
+    } else if (e.code === 'KeyK') {
+      e.preventDefault()
+      setIsPlaying(false)
+    } else if (e.code === 'KeyL') {
+      e.preventDefault()
+      setCurrentTime(Math.min(project.duration, currentTime + (e.shiftKey ? 5 : 1)))
+    } else if (e.code === 'Comma') {
+      // Previous frame
+      e.preventDefault()
+      setCurrentTime(Math.max(0, currentTime - 1 / project.fps))
+    } else if (e.code === 'Period') {
+      // Next frame
+      e.preventDefault()
+      setCurrentTime(Math.min(project.duration, currentTime + 1 / project.fps))
     }
   }, [
     isPlaying, selectedClipIds, currentTime, project,

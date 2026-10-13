@@ -2,6 +2,10 @@ import { useState } from 'react'
 import { useEditorStore } from '../store/editorStore'
 import type { TextClip } from '../types'
 import { ChevronDown, ChevronRight } from 'lucide-react'
+import { TEXT_IN_ANIMATIONS, TEXT_OUT_ANIMATIONS } from '../shared/text-animation'
+import { hasKeyframes } from '../shared/keyframe-interpolate'
+
+const SPEED_PRESETS = [0.3, 0.5, 1, 1.5, 2, 4]
 
 function Section({ title, children, defaultOpen = true }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
@@ -57,6 +61,28 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
 // nothing visible is worse than no slider, so they are disabled and say so.
 const NOT_RENDERED_HINT = 'Not rendered yet — needs the Phase 2 compositor'
 
+function KfBtn({ active, onClick }: { active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title={active ? 'Hapus keyframe' : 'Tambah keyframe di sini'}
+      style={{
+        width: 14, height: 14, border: 'none', cursor: 'pointer', padding: 0,
+        background: 'transparent', flexShrink: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      <div style={{
+        width: 8, height: 8,
+        transform: 'rotate(45deg)',
+        background: active ? '#f59e0b' : 'transparent',
+        border: `1.5px solid ${active ? '#f59e0b' : '#555'}`,
+        borderRadius: 1,
+      }} />
+    </button>
+  )
+}
+
 function Slider({ label, value, min, max, step = 1, onChange, disabled, hint }: {
   label: string; value: number; min: number; max: number; step?: number
   onChange: (v: number) => void
@@ -82,7 +108,13 @@ function Slider({ label, value, min, max, step = 1, onChange, disabled, hint }: 
 }
 
 export function RightPanel() {
-  const { project, selectedClipIds, selectedTextIds, updateClip, updateTextClip } = useEditorStore()
+  const {
+    project, currentTime,
+    selectedClipIds, selectedTextIds, selectedAudioIds, selectedStickerIds,
+    updateClip, updateTextClip, updateAudioClip, updateStickerClip,
+    addClipKeyframe, removeClipKeyframe, addTextKeyframe, removeTextKeyframe,
+    addAudioKeyframe, removeAudioKeyframe,
+  } = useEditorStore()
 
   const selectedClip = selectedClipIds[0]
     ? project.clips.find(c => c.id === selectedClipIds[0])
@@ -90,6 +122,20 @@ export function RightPanel() {
   const selectedText = selectedTextIds[0]
     ? project.textClips.find(t => t.id === selectedTextIds[0])
     : null
+  const selectedAudio = selectedAudioIds[0]
+    ? project.audioClips.find(c => c.id === selectedAudioIds[0])
+    : null
+  const selectedSticker = selectedStickerIds[0]
+    ? project.stickerClips.find(c => c.id === selectedStickerIds[0])
+    : null
+
+  const hasSelection = !!(selectedClip || selectedText || selectedAudio || selectedSticker)
+
+  const panelTitle = selectedClip ? 'Video Clip'
+    : selectedText ? 'Teks'
+    : selectedAudio ? 'Audio'
+    : selectedSticker ? 'Stiker'
+    : 'Properties'
 
   return (
     <div
@@ -105,9 +151,9 @@ export function RightPanel() {
           className="text-xs font-semibold uppercase tracking-widest"
           style={{ color: 'var(--color-text-muted)' }}
         >
-          {selectedClip ? 'Clip' : selectedText ? 'Text' : 'Properties'}
+          {panelTitle}
         </span>
-        {(selectedClip || selectedText) && (
+        {hasSelection && (
           <span
             className="ml-auto text-xs px-1.5 py-0.5 rounded"
             style={{ background: 'rgba(255,71,87,0.12)', color: 'var(--color-primary)' }}
@@ -118,7 +164,7 @@ export function RightPanel() {
       </div>
 
       {/* No selection */}
-      {!selectedClip && !selectedText && (
+      {!hasSelection && (
         <div className="flex-1 flex flex-col items-center justify-center gap-2 px-4">
           <div style={{ opacity: 0.15, fontSize: 32 }}>✦</div>
           <p className="text-xs text-center" style={{ color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
@@ -128,21 +174,44 @@ export function RightPanel() {
       )}
 
       {/* Clip properties */}
-      {selectedClip && (
+      {selectedClip && (() => {
+        // Hoisted to the whole clip branch so Transform and Playback share one
+        // keyframe helper instead of each defining their own.
+        const kfs = selectedClip.keyframes ?? []
+        const toggleKf = (prop: string, value: number) => {
+          const atTime = kfs.find(k => k.property === prop && Math.abs(k.time - currentTime) < 0.05)
+          if (atTime) removeClipKeyframe(selectedClip.id, atTime.id)
+          else addClipKeyframe(selectedClip.id, { id: crypto.randomUUID(), time: currentTime, property: prop, value })
+        }
+        return (
         <>
           <Section title="Transform">
-            <Slider label="Opacity" value={Math.round(selectedClip.opacity * 100)} min={0} max={100}
-              onChange={v => updateClip(selectedClip.id, { opacity: v / 100 })} />
-            <Slider label="Scale X" value={Math.round(selectedClip.scaleX * 100)} min={10} max={300}
-              onChange={v => updateClip(selectedClip.id, { scaleX: v / 100 })} />
-            <Slider label="Scale Y" value={Math.round(selectedClip.scaleY * 100)} min={10} max={300}
-              onChange={v => updateClip(selectedClip.id, { scaleY: v / 100 })} />
-            <Slider label="Rotation" value={selectedClip.rotation} min={-180} max={180}
-              onChange={v => updateClip(selectedClip.id, { rotation: v })} />
-            <Slider label="Position X" value={Math.round(selectedClip.x * 100)} min={-100} max={100}
-              onChange={v => updateClip(selectedClip.id, { x: v / 100 })} />
-            <Slider label="Position Y" value={Math.round(selectedClip.y * 100)} min={-100} max={100}
-              onChange={v => updateClip(selectedClip.id, { y: v / 100 })} />
+                <>
+                  <div className="flex items-center gap-1 mb-2">
+                    <div className="flex-1"><Slider label="Opacity" value={Math.round(selectedClip.opacity * 100)} min={0} max={100} onChange={v => updateClip(selectedClip.id, { opacity: v / 100 })} /></div>
+                    <KfBtn active={hasKeyframes(kfs, 'opacity')} onClick={() => toggleKf('opacity', selectedClip.opacity)} />
+                  </div>
+                  <div className="flex items-center gap-1 mb-2">
+                    <div className="flex-1"><Slider label="Scale X" value={Math.round(selectedClip.scaleX * 100)} min={10} max={300} onChange={v => updateClip(selectedClip.id, { scaleX: v / 100 })} /></div>
+                    <KfBtn active={hasKeyframes(kfs, 'scaleX')} onClick={() => toggleKf('scaleX', selectedClip.scaleX)} />
+                  </div>
+                  <div className="flex items-center gap-1 mb-2">
+                    <div className="flex-1"><Slider label="Scale Y" value={Math.round(selectedClip.scaleY * 100)} min={10} max={300} onChange={v => updateClip(selectedClip.id, { scaleY: v / 100 })} /></div>
+                    <KfBtn active={hasKeyframes(kfs, 'scaleY')} onClick={() => toggleKf('scaleY', selectedClip.scaleY)} />
+                  </div>
+                  <div className="flex items-center gap-1 mb-2">
+                    <div className="flex-1"><Slider label="Rotation" value={selectedClip.rotation} min={-180} max={180} onChange={v => updateClip(selectedClip.id, { rotation: v })} /></div>
+                    <KfBtn active={hasKeyframes(kfs, 'rotation')} onClick={() => toggleKf('rotation', selectedClip.rotation)} />
+                  </div>
+                  <div className="flex items-center gap-1 mb-2">
+                    <div className="flex-1"><Slider label="Position X" value={Math.round(selectedClip.x * 100)} min={-100} max={100} onChange={v => updateClip(selectedClip.id, { x: v / 100 })} /></div>
+                    <KfBtn active={hasKeyframes(kfs, 'x')} onClick={() => toggleKf('x', selectedClip.x)} />
+                  </div>
+                  <div className="flex items-center gap-1 mb-2">
+                    <div className="flex-1"><Slider label="Position Y" value={Math.round(selectedClip.y * 100)} min={-100} max={100} onChange={v => updateClip(selectedClip.id, { y: v / 100 })} /></div>
+                    <KfBtn active={hasKeyframes(kfs, 'y')} onClick={() => toggleKf('y', selectedClip.y)} />
+                  </div>
+                </>
           </Section>
 
           <Section title="Color & Light">
@@ -175,9 +244,36 @@ export function RightPanel() {
               disabled hint={NOT_RENDERED_HINT} />
           </Section>
 
-          <Section title="Playback" defaultOpen={false}>
-            <Slider label="Speed" value={selectedClip.speed} min={0.1} max={10} step={0.05}
-              onChange={v => updateClip(selectedClip.id, { speed: v })} />
+          <Section title="Playback">
+            <div className="mb-1">
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>Speed</span>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{selectedClip.speed}x</span>
+                  <KfBtn active={hasKeyframes(kfs, 'speed')} onClick={() => toggleKf('speed', selectedClip.speed)} />
+                </div>
+              </div>
+              <div className="flex gap-1 mb-2">
+                {SPEED_PRESETS.map(s => (
+                  <button
+                    key={s}
+                    onClick={() => updateClip(selectedClip.id, { speed: s })}
+                    style={{
+                      flex: 1, fontSize: 9, padding: '3px 0', borderRadius: 4, border: 'none',
+                      cursor: 'pointer',
+                      background: selectedClip.speed === s ? 'var(--color-primary)' : 'var(--color-bg-surface)',
+                      color: selectedClip.speed === s ? 'white' : 'var(--color-text-secondary)',
+                    }}
+                  >
+                    {s}x
+                  </button>
+                ))}
+              </div>
+              <input
+                type="range" min={0.1} max={10} step={0.05} value={selectedClip.speed}
+                onChange={e => updateClip(selectedClip.id, { speed: +e.target.value })}
+              />
+            </div>
             <Slider label="Volume" value={Math.round(selectedClip.volume * 100)} min={0} max={200}
               onChange={v => updateClip(selectedClip.id, { volume: v / 100 })} />
             <Toggle label="Reverse" checked={selectedClip.reversed} onChange={v => updateClip(selectedClip.id, { reversed: v })} />
@@ -206,7 +302,8 @@ export function RightPanel() {
             <Toggle label="Enable Stabilize" checked={selectedClip.stabilize} onChange={v => updateClip(selectedClip.id, { stabilize: v })} />
           </Section>
         </>
-      )}
+        )
+      })()}
 
       {/* Text properties */}
       {selectedText && (
@@ -260,14 +357,75 @@ export function RightPanel() {
           </Section>
 
           <Section title="Transform">
-            <Slider label="Rotation" value={selectedText.rotation} min={-180} max={180}
-              onChange={v => updateTextClip(selectedText.id, { rotation: v })} />
-            <Slider label="Scale" value={Math.round(selectedText.scaleX * 100)} min={10} max={300}
-              onChange={v => updateTextClip(selectedText.id, { scaleX: v / 100, scaleY: v / 100 })} />
-            <Slider label="Letter Spacing" value={selectedText.letterSpacing} min={-10} max={50}
-              onChange={v => updateTextClip(selectedText.id, { letterSpacing: v })} />
-            <Slider label="Line Height" value={Math.round(selectedText.lineHeight * 10)} min={5} max={30} step={1}
-              onChange={v => updateTextClip(selectedText.id, { lineHeight: v / 10 })} />
+            {(() => {
+              const kfs = selectedText.keyframes ?? []
+              const toggleKf = (prop: string, value: number) => {
+                const atTime = kfs.find(k => k.property === prop && Math.abs(k.time - currentTime) < 0.05)
+                if (atTime) removeTextKeyframe(selectedText.id, atTime.id)
+                else addTextKeyframe(selectedText.id, { id: crypto.randomUUID(), time: currentTime, property: prop, value })
+              }
+              return (
+                <>
+                  <div className="flex items-center gap-1 mb-2">
+                    <div className="flex-1"><Slider label="Rotation" value={selectedText.rotation} min={-180} max={180} onChange={v => updateTextClip(selectedText.id, { rotation: v })} /></div>
+                    <KfBtn active={hasKeyframes(kfs, 'rotation')} onClick={() => toggleKf('rotation', selectedText.rotation)} />
+                  </div>
+                  <div className="flex items-center gap-1 mb-2">
+                    <div className="flex-1"><Slider label="Scale" value={Math.round(selectedText.scaleX * 100)} min={10} max={300} onChange={v => updateTextClip(selectedText.id, { scaleX: v / 100, scaleY: v / 100 })} /></div>
+                    <KfBtn active={hasKeyframes(kfs, 'scaleX')} onClick={() => toggleKf('scaleX', selectedText.scaleX)} />
+                  </div>
+                  <Slider label="Letter Spacing" value={selectedText.letterSpacing} min={-10} max={50}
+                    onChange={v => updateTextClip(selectedText.id, { letterSpacing: v })} />
+                  <Slider label="Line Height" value={Math.round(selectedText.lineHeight * 10)} min={5} max={30} step={1}
+                    onChange={v => updateTextClip(selectedText.id, { lineHeight: v / 10 })} />
+                </>
+              )
+            })()}
+          </Section>
+
+          <Section title="Animasi">
+            <div className="mb-3">
+              <span className="text-xs block mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>Masuk</span>
+              <div className="grid grid-cols-3 gap-1">
+                {TEXT_IN_ANIMATIONS.map(a => (
+                  <button
+                    key={a.id}
+                    onClick={() => updateTextClip(selectedText.id, { animation: a.id === 'none' ? undefined : a.id })}
+                    style={{
+                      fontSize: 9, padding: '4px 2px', borderRadius: 4, border: 'none',
+                      cursor: 'pointer', textAlign: 'center',
+                      background: (selectedText.animation ?? 'none') === a.id
+                        ? 'var(--color-primary)' : 'var(--color-bg-surface)',
+                      color: (selectedText.animation ?? 'none') === a.id
+                        ? 'white' : 'var(--color-text-secondary)',
+                    }}
+                  >
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <span className="text-xs block mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>Keluar</span>
+              <div className="grid grid-cols-3 gap-1">
+                {TEXT_OUT_ANIMATIONS.map(a => (
+                  <button
+                    key={a.id}
+                    onClick={() => updateTextClip(selectedText.id, { outAnimation: a.id === 'none' ? undefined : a.id })}
+                    style={{
+                      fontSize: 9, padding: '4px 2px', borderRadius: 4, border: 'none',
+                      cursor: 'pointer', textAlign: 'center',
+                      background: (selectedText.outAnimation ?? 'none') === a.id
+                        ? '#7c3aed' : 'var(--color-bg-surface)',
+                      color: (selectedText.outAnimation ?? 'none') === a.id
+                        ? 'white' : 'var(--color-text-secondary)',
+                    }}
+                  >
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </Section>
 
           <Section title="Shadow & Stroke" defaultOpen={false}>
@@ -287,6 +445,88 @@ export function RightPanel() {
                   style={{ width: '100%', height: 28, border: 'none', borderRadius: 4 }} />
               </div>
             )}
+          </Section>
+        </>
+      )}
+
+      {/* Audio clip properties */}
+      {selectedAudio && (() => {
+        const audioKfs = selectedAudio.keyframes ?? []
+        const toggleAudioKf = (prop: string, fallback: number) => {
+          const existing = audioKfs.find(k => k.property === prop && Math.abs(k.time - currentTime) < 0.05)
+          if (existing) {
+            removeAudioKeyframe(selectedAudio.id, existing.id)
+          } else {
+            const nearest = [...audioKfs].filter(k => k.property === prop).sort((a, b) => Math.abs(a.time - currentTime) - Math.abs(b.time - currentTime))[0]
+            addAudioKeyframe(selectedAudio.id, { id: crypto.randomUUID(), time: currentTime, property: prop, value: nearest?.value ?? fallback })
+          }
+        }
+        return (
+        <>
+          <Section title="Volume & Playback">
+            <div className="flex items-center gap-1">
+              <div className="flex-1">
+                <Slider label="Volume" value={Math.round(selectedAudio.volume * 100)} min={0} max={200}
+                  onChange={v => updateAudioClip(selectedAudio.id, { volume: v / 100 })} />
+              </div>
+              <KfBtn active={hasKeyframes(audioKfs, 'volume')} onClick={() => toggleAudioKf('volume', selectedAudio.volume)} />
+            </div>
+            <div className="mb-1">
+              <div className="flex justify-between mb-1">
+                <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>Speed</span>
+                <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{selectedAudio.speed}x</span>
+              </div>
+              <div className="flex gap-1 mb-2">
+                {SPEED_PRESETS.map(s => (
+                  <button
+                    key={s}
+                    onClick={() => updateAudioClip(selectedAudio.id, { speed: s })}
+                    style={{
+                      flex: 1, fontSize: 9, padding: '3px 0', borderRadius: 4, border: 'none',
+                      cursor: 'pointer',
+                      background: selectedAudio.speed === s ? 'var(--color-primary)' : 'var(--color-bg-surface)',
+                      color: selectedAudio.speed === s ? 'white' : 'var(--color-text-secondary)',
+                    }}
+                  >
+                    {s}x
+                  </button>
+                ))}
+              </div>
+              <input
+                type="range" min={0.1} max={4} step={0.05} value={selectedAudio.speed}
+                onChange={e => updateAudioClip(selectedAudio.id, { speed: +e.target.value })}
+              />
+            </div>
+            <Toggle label="Mute" checked={selectedAudio.muted} onChange={v => updateAudioClip(selectedAudio.id, { muted: v })} />
+          </Section>
+          <Section title="Fade" defaultOpen={false}>
+            <Slider label="Fade In" value={Math.round(selectedAudio.fadein * 10) / 10} min={0} max={5} step={0.1}
+              onChange={v => updateAudioClip(selectedAudio.id, { fadein: v })} />
+            <Slider label="Fade Out" value={Math.round(selectedAudio.fadeout * 10) / 10} min={0} max={5} step={0.1}
+              onChange={v => updateAudioClip(selectedAudio.id, { fadeout: v })} />
+          </Section>
+          <Section title="Pitch" defaultOpen={false}>
+            <Slider label="Pitch Shift" value={selectedAudio.pitch} min={-12} max={12} step={1}
+              onChange={v => updateAudioClip(selectedAudio.id, { pitch: v })} />
+          </Section>
+        </>
+        )
+      })()}
+
+      {/* Sticker clip properties */}
+      {selectedSticker && (
+        <>
+          <Section title="Transform">
+            <Slider label="Opacity" value={Math.round(selectedSticker.opacity * 100)} min={0} max={100}
+              onChange={v => updateStickerClip(selectedSticker.id, { opacity: v / 100 })} />
+            <Slider label="Scale" value={Math.round(selectedSticker.scaleX * 100)} min={10} max={400}
+              onChange={v => updateStickerClip(selectedSticker.id, { scaleX: v / 100, scaleY: v / 100 })} />
+            <Slider label="Rotation" value={selectedSticker.rotation} min={-180} max={180}
+              onChange={v => updateStickerClip(selectedSticker.id, { rotation: v })} />
+            <Slider label="Position X" value={Math.round(selectedSticker.x * 100)} min={-100} max={100}
+              onChange={v => updateStickerClip(selectedSticker.id, { x: v / 100 })} />
+            <Slider label="Position Y" value={Math.round(selectedSticker.y * 100)} min={-100} max={100}
+              onChange={v => updateStickerClip(selectedSticker.id, { y: v / 100 })} />
           </Section>
         </>
       )}

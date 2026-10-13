@@ -17,6 +17,13 @@ export const MediaFileSchema = z.object({
   size: z.number(),
 })
 
+export const KeyframeSchema = z.object({
+  id: z.string(),
+  time: z.number(),       // absolute project time in seconds
+  property: z.string(),   // 'x' | 'y' | 'scaleX' | 'scaleY' | 'rotation' | 'opacity'
+  value: z.number(),
+})
+
 export const ClipSchema = z.object({
   id: z.string(),
   mediaId: z.string(),
@@ -49,6 +56,8 @@ export const ClipSchema = z.object({
   chromaColor: z.string(),
   chromaTolerance: z.number(),
   stabilize: z.boolean(),
+  effects: z.array(z.object({ id: z.string(), intensity: z.number() })).default([]),
+  keyframes: z.array(KeyframeSchema).default([]),
 })
 
 export const TextClipSchema = z.object({
@@ -82,6 +91,7 @@ export const TextClipSchema = z.object({
   shadowBlur: z.number(),
   shadowX: z.number(),
   shadowY: z.number(),
+  keyframes: z.array(KeyframeSchema).default([]),
 })
 
 export const StickerClipSchema = z.object({
@@ -113,6 +123,7 @@ export const AudioClipSchema = z.object({
   fadeout: z.number(),
   speed: z.number(),
   pitch: z.number(),
+  keyframes: z.array(KeyframeSchema).default([]),
 })
 
 export const TrackSchema = z.object({
@@ -170,6 +181,7 @@ export const ProjectFileSchema = z.object({
   project: ProjectSchema,
 })
 
+export type Keyframe = z.infer<typeof KeyframeSchema>
 export type MediaType = z.infer<typeof MediaTypeSchema>
 export type MediaFile = z.infer<typeof MediaFileSchema>
 export type Clip = z.infer<typeof ClipSchema>

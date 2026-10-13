@@ -27,6 +27,7 @@ export const IPC = {
   exportAbort: 'export:abort',
   exportProgress: 'export:progress',
   dialogOpenMedia: 'dialog:openMedia',
+  saveRecording: 'media:saveRecording',
 } as const
 
 export type ErrorCode =
@@ -85,4 +86,5 @@ export interface ElectronApi {
   endExportFrames: () => void
   onExportAbort: (cb: (message: string) => void) => () => void
   onExportProgress: (cb: (percent: number) => void) => () => void
+  saveRecording?: (buffer: ArrayBuffer) => Promise<IpcResult<string>>
 }

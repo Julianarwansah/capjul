@@ -13,6 +13,7 @@ export type {
   Caption,
   Project,
   ProjectFile,
+  Keyframe,
 } from '../shared/project-schema'
 export type { FfprobeStream, FfprobeResult } from '../shared/ffprobe'
 

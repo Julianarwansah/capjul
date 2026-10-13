@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compileScene, isActiveAt, mediaTimeAt } from './scene'
+import { compileScene, isActiveAt, mediaTimeAt, textTransformAt, transformAt } from './scene'
 import type { Clip, Project, StickerClip, TextClip } from './project-schema'
 
 function clip(over: Partial<Clip> = {}): Clip {
@@ -13,6 +13,7 @@ function clip(over: Partial<Clip> = {}): Clip {
     temperature: 0, tint: 0, sharpness: 0,
     chromaEnabled: false, chromaColor: '#00ff00', chromaTolerance: 0.3,
     stabilize: false,
+    effects: [], keyframes: [],
     ...over,
   }
 }
@@ -40,6 +41,7 @@ const text = (over: Partial<TextClip> = {}): TextClip => ({
   letterSpacing: 0, lineHeight: 1.2,
   strokeColor: 'transparent', strokeWidth: 0,
   shadowColor: 'rgba(0,0,0,0.5)', shadowBlur: 8, shadowX: 2, shadowY: 2,
+  keyframes: [],
   ...over,
 })
 
@@ -80,6 +82,18 @@ describe('compileScene', () => {
     }))
     expect(scene.layers[0].kind).toBe('image')
   })
+
+  it('carries clip keyframes onto the layer, so export animates the pose preview shows', () => {
+    const kfs = [
+      { id: 'k1', time: 0, property: 'x', value: -0.5 },
+      { id: 'k2', time: 2, property: 'x', value: 0.5 },
+    ]
+    const scene = compileScene(project({ clips: [clip({ keyframes: kfs })] }))
+    const layer = scene.layers[0]
+    if (layer.kind !== 'video') throw new Error('expected a video layer')
+    expect(layer.keyframes).toEqual(kfs)
+    expect(transformAt(layer.keyframes, layer.transform, 1).x).toBeCloseTo(0)
+  })
 })
 
 describe('timing', () => {
@@ -94,5 +108,57 @@ describe('timing', () => {
     expect(isActiveAt(layer, 1)).toBe(true)
     expect(isActiveAt(layer, 2.99)).toBe(true)
     expect(isActiveAt(layer, 3)).toBe(false)
+  })
+})
+
+describe('transformAt', () => {
+  const base = { x: 0.1, y: 0.2, scaleX: 1, scaleY: 1, rotation: 0, opacity: 1 }
+
+  it('hands back the base pose itself when nothing is keyframed', () => {
+    expect(transformAt([], base, 5)).toBe(base)
+  })
+
+  it('interpolates linearly between two keyframes', () => {
+    const kfs = [
+      { id: 'a', time: 1, property: 'x', value: -0.4 },
+      { id: 'b', time: 3, property: 'x', value: 0.4 },
+    ]
+    expect(transformAt(kfs, base, 2).x).toBeCloseTo(0)
+    expect(transformAt(kfs, base, 1.5).x).toBeCloseTo(-0.2)
+  })
+
+  it('holds the first and last value outside the keyframed range', () => {
+    const kfs = [
+      { id: 'a', time: 1, property: 'opacity', value: 0 },
+      { id: 'b', time: 2, property: 'opacity', value: 1 },
+    ]
+    expect(transformAt(kfs, base, 0).opacity).toBe(0)
+    expect(transformAt(kfs, base, 9).opacity).toBe(1)
+  })
+
+  it('leaves properties without a keyframe at their base value', () => {
+    const tr = transformAt([{ id: 'a', time: 0, property: 'x', value: 0.9 }], base, 0)
+    expect(tr.x).toBe(0.9)
+    expect(tr.y).toBe(base.y)
+    expect(tr.scaleX).toBe(base.scaleX)
+    expect(tr.rotation).toBe(base.rotation)
+    expect(tr.opacity).toBe(base.opacity)
+  })
+})
+
+describe('textTransformAt', () => {
+  it('reads the clip pose and starts opacity at 1, TextClip having no opacity field', () => {
+    const tr = textTransformAt(text({ x: 0.25, y: 0.75, scaleX: 2, scaleY: 2, rotation: 30 }), 0)
+    expect(tr).toEqual({ x: 0.25, y: 0.75, scaleX: 2, scaleY: 2, rotation: 30, opacity: 1 })
+  })
+
+  it('interpolates a keyframed rotation while the rest stays at the clip value', () => {
+    const kfs = [
+      { id: 'a', time: 0, property: 'rotation', value: 0 },
+      { id: 'b', time: 2, property: 'rotation', value: 90 },
+    ]
+    const tr = textTransformAt(text({ x: 0.4, rotation: 0, keyframes: kfs }), 1)
+    expect(tr.rotation).toBeCloseTo(45)
+    expect(tr.x).toBe(0.4)
   })
 })

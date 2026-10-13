@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  atempoChain, buildRenderArgs, colorAdjustChain, compileProject, overlayOrigin,
-  type RenderLayer, type RenderOutput,
+  atempoChain, audioGraphFilters, buildRenderArgs, colorAdjustChain, compileProject,
+  overlayOrigin, volumeExpression,
+  type RenderAudio, type RenderLayer, type RenderOutput,
 } from './render-plan'
 import type { AudioClip, Clip, MediaFile, Project } from './project-schema'
 
@@ -22,6 +23,16 @@ function clip(over: Partial<Clip> = {}): Clip {
     temperature: 0, tint: 0, sharpness: 0,
     chromaEnabled: false, chromaColor: '#00ff00', chromaTolerance: 0.3,
     stabilize: false,
+    effects: [], keyframes: [],
+    ...over,
+  }
+}
+
+function audioClip(over: Partial<AudioClip> = {}): AudioClip {
+  return {
+    id: 'a1', trackId: 't0', mediaId: 'm1', startTime: 1, duration: 4,
+    mediaStart: 0, mediaEnd: 4, volume: 0.5, muted: false, fadein: 0, fadeout: 0,
+    speed: 1, pitch: 0, keyframes: [],
     ...over,
   }
 }
@@ -74,6 +85,7 @@ describe('compileProject', () => {
       id: 'a1', trackId: 't0', mediaId: 'm1', startTime: 1, duration: 4,
       mediaStart: 0, mediaEnd: 4, volume: 0.5, muted: false, fadein: 1, fadeout: 0.5,
       speed: 1, pitch: 0,
+      keyframes: [],
     }
     const plan = compileProject(project({ audioClips: [ac] }), output)
     expect(plan.audio).toHaveLength(1)
@@ -96,6 +108,8 @@ describe('colorAdjustChain', () => {
     inputId: 'in0', kind: 'video', z: 0, start: 0, end: 1, mediaStart: 0, mediaEnd: 1,
     speed: 1, opacity: 1, x: 0, y: 0, scaleX: 1, scaleY: 1,
     brightness: 0, contrast: 0, saturation: 0,
+    chromaEnabled: false, chromaColor: '#00ff00', chromaTolerance: 0.3,
+    reversed: false,
     ...over,
   })
 
@@ -199,5 +213,60 @@ describe('buildRenderArgs', () => {
   it('chains atempo for slow clips', () => {
     const graph = graphOf(compileProject(project({ clips: [clip({ speed: 0.2 })] }), output))
     expect(graph).toContain('atempo=0.5,atempo=0.5,atempo=0.8')
+  })
+})
+
+describe('volumeExpression', () => {
+  const kf = (time: number, value: number) => ({ id: `k${time}`, time, property: 'volume', value })
+
+  it('is the plain volume when nothing is keyframed', () => {
+    expect(volumeExpression([], 0.8, 0)).toBe('0.8')
+  })
+
+  it('holds the first value before the first keyframe and the last after the last', () => {
+    const expr = volumeExpression([kf(1, 0.2), kf(2, 0.6)], 1, 0)
+    expect(expr.startsWith('if(lt(t,1),0.2,')).toBe(true)
+    expect(expr.endsWith(',0.6))')).toBe(true)
+  })
+
+  it('interpolates linearly between keyframes, shifted into stream time by start', () => {
+    // stream time = timeline - start, so a ramp over [2,4] runs over t in [0,2]
+    expect(volumeExpression([kf(2, 0), kf(4, 1)], 1, 2))
+      .toBe('if(lt(t,0),0,if(lt(t,2),0+(t-0)*0.5,1))')
+  })
+
+  it('ignores keyframes for other properties', () => {
+    expect(volumeExpression([{ id: 'x', time: 1, property: 'x', value: 5 }], 0.4, 0)).toBe('0.4')
+  })
+})
+
+describe('audioGraphFilters volume', () => {
+  const inputs = [{ id: 'in0', path: '/tmp/a.mp3' }]
+  const entry = (over: Partial<RenderAudio> = {}): RenderAudio => ({
+    inputId: 'in0', start: 1, mediaStart: 0, mediaEnd: 2, speed: 1,
+    volume: 0.5, fadein: 0, fadeout: 0, keyframes: [],
+    ...over,
+  })
+
+  it('uses a static volume when nothing is keyframed', () => {
+    const [chain] = audioGraphFilters(inputs, [entry()])
+    expect(chain).toContain('volume=0.5,')
+    expect(chain).not.toContain('eval=frame')
+  })
+
+  it('switches to a per-frame expression when volume is keyframed', () => {
+    const [chain] = audioGraphFilters(inputs, [entry({
+      keyframes: [
+        { id: 'a', time: 1, property: 'volume', value: 0 },
+        { id: 'b', time: 3, property: 'volume', value: 1 },
+      ],
+    })])
+    expect(chain).toContain("volume=volume='if(lt(t,0),0,if(lt(t,2),0+(t-0)*0.5,1))':eval=frame")
+  })
+
+  it('carries audio clip volume keyframes into the plan', () => {
+    const kfs = [{ id: 'v', time: 1, property: 'volume', value: 0.25 }]
+    const plan = compileProject(project({ audioClips: [audioClip({ keyframes: kfs })] }), output)
+    expect(plan.audio[0].keyframes).toEqual(kfs)
   })
 })

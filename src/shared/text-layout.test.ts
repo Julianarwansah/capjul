@@ -15,6 +15,7 @@ function clip(over: Partial<TextClip> = {}): TextClip {
     letterSpacing: 0, lineHeight: 1.2,
     strokeColor: 'transparent', strokeWidth: 0,
     shadowColor: 'rgba(0,0,0,0.5)', shadowBlur: 8, shadowX: 2, shadowY: 2,
+    keyframes: [],
     ...over,
   }
 }

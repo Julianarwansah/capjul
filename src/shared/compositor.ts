@@ -1,8 +1,8 @@
 // Renderer-only: draws with DOM canvas and HTMLMediaElement. Never import from
 // the main process. This is the Phase 2 compositor: the single place that knows
 // how a Scene becomes pixels, so preview and export cannot drift.
-import { isActiveAt, mediaTimeAt, type Scene, type SceneImageLayer, type SceneLayer, type SceneStickerLayer, type SceneTextLayer, type SceneVideoLayer } from './scene'
-import { rasterizeTextClipToCanvas, stickerPlacement, loadSvgImage } from './text-rasterizer'
+import { isActiveAt, mediaTimeAt, textTransformAt, transformAt, type Scene, type SceneImageLayer, type SceneLayer, type SceneStickerLayer, type SceneTextLayer, type SceneVideoLayer } from './scene'
+import { rasterizeTextCentred, stickerPlacement, loadSvgImage } from './text-rasterizer'
 import { stickerSvg } from './sticker-svgs'
 import type { MediaFile } from './project-schema'
 
@@ -15,6 +15,7 @@ export interface PreparedScene {
 }
 
 const SEEK_TIMEOUT_MS = 2000
+const VIDEO_READY_TIMEOUT_MS = 5000
 
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -42,6 +43,28 @@ function seekTo(el: HTMLVideoElement, time: number): Promise<void> {
   })
 }
 
+/** Resolves once the element holds a drawable frame. Setting currentTime before
+ *  that is silently dropped, which is how an export opens on blank frames; a
+ *  file that never decodes gives up instead of hanging the export. */
+function waitForVideoReady(el: HTMLVideoElement): Promise<void> {
+  return new Promise(resolve => {
+    if (el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      resolve()
+      return
+    }
+    const timer = setTimeout(() => {
+      el.removeEventListener('loadeddata', done)
+      resolve()
+    }, VIDEO_READY_TIMEOUT_MS)
+    function done() {
+      clearTimeout(timer)
+      el.removeEventListener('loadeddata', done)
+      resolve()
+    }
+    el.addEventListener('loadeddata', done)
+  })
+}
+
 export async function prepareScene(
   scene: Scene,
   media: MediaFile[],
@@ -61,11 +84,15 @@ export async function prepareScene(
       images.set(m.id, await loadImage(resolveMediaUrl(m.path)))
     }
   }
+  // First-frame seeks are dropped until a video holds data, which is how an
+  // export opens on blank frames. Wait in parallel so N clips cost one decode.
+  await Promise.all([...videos.values()].map(waitForVideoReady))
 
   const textLayers = scene.layers.filter((l): l is SceneTextLayer => l.kind === 'text')
-  const textCanvases = new Map(
-    textLayers.map(l => [l.clip.id, rasterizeTextClipToCanvas(l.clip, scene.width, scene.height)]),
-  )
+  // Box-sized and centred, so drawText can vary placement, rotation and scale
+  // per frame. Baking those here would freeze text at its base pose and drop
+  // every text keyframe.
+  const textCanvases = new Map(textLayers.map(l => [l.clip.id, rasterizeTextCentred(l.clip)]))
 
   const stickerLayers = scene.layers.filter((l): l is SceneStickerLayer => l.kind === 'sticker')
   const stickers = new Map<string, HTMLImageElement>()
@@ -83,7 +110,7 @@ export async function prepareScene(
     return el && el.naturalWidth ? { w: el.naturalWidth, h: el.naturalHeight } : null
   }
 
-  function drawMediaLayer(ctx: CanvasRenderingContext2D, layer: SceneVideoLayer | SceneImageLayer) {
+  function drawMediaLayer(ctx: CanvasRenderingContext2D, layer: SceneVideoLayer | SceneImageLayer, t: number) {
     const el = (layer.kind === 'video' ? videos.get(layer.mediaId) : images.get(layer.mediaId)) as
       | HTMLVideoElement
       | HTMLImageElement
@@ -91,7 +118,7 @@ export async function prepareScene(
     const size = sourceSize(layer)
     if (!el || !size) return
     const { width: W, height: H } = scene
-    const tr = layer.transform
+    const tr = transformAt(layer.keyframes, layer.transform, t)
     ctx.save()
     if (layer.filter) ctx.filter = layer.filter
     ctx.globalAlpha = tr.opacity
@@ -119,6 +146,23 @@ export async function prepareScene(
     ctx.restore()
   }
 
+  function drawText(ctx: CanvasRenderingContext2D, layer: SceneTextLayer, t: number) {
+    const raster = textCanvases.get(layer.clip.id)
+    if (!raster) return
+    const tr = textTransformAt(layer.clip, t)
+    const { width: W, height: H } = scene
+    ctx.save()
+    ctx.globalAlpha = tr.opacity
+    // Preview: left/top place the box at x/y as canvas fractions, then
+    // translate(-50%,-50%) rotate() scale() about the box centre. The raster
+    // holds exactly that box centred, so half its size is the -50%,-50%.
+    ctx.translate(tr.x * W, tr.y * H)
+    ctx.rotate(tr.rotation * Math.PI / 180)
+    ctx.scale(tr.scaleX, tr.scaleY)
+    ctx.drawImage(raster, -raster.width / 2, -raster.height / 2)
+    ctx.restore()
+  }
+
   function drawFrame(ctx: CanvasRenderingContext2D, t: number) {
     ctx.save()
     ctx.filter = 'none'
@@ -128,13 +172,9 @@ export async function prepareScene(
     ctx.fillRect(0, 0, scene.width, scene.height)
     for (const layer of scene.layers) {
       if (!isActiveAt(layer, t)) continue
-      if (layer.kind === 'video' || layer.kind === 'image') drawMediaLayer(ctx, layer)
-      else if (layer.kind === 'text') {
-        const raster = textCanvases.get(layer.clip.id)
-        if (raster) ctx.drawImage(raster, 0, 0)
-      } else {
-        drawSticker(ctx, layer)
-      }
+      if (layer.kind === 'video' || layer.kind === 'image') drawMediaLayer(ctx, layer, t)
+      else if (layer.kind === 'text') drawText(ctx, layer, t)
+      else drawSticker(ctx, layer)
     }
     ctx.restore()
   }

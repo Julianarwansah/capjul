@@ -1,6 +1,7 @@
+import { useState } from 'react'
 import { useEditorStore } from '../../store/editorStore'
 import type { TextClip } from '../../types'
-import { Type } from 'lucide-react'
+import { Type, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 
 const TEXT_PRESETS = [
   { id: 'title', label: 'Title', fontSize: 72, fontFamily: 'Arial Black', fontColor: '#ffffff', bold: true, style: 'shadow' },
@@ -26,12 +27,35 @@ function makeTextClip(overrides: Partial<TextClip> = {}): TextClip {
     letterSpacing: 0, lineHeight: 1.2,
     strokeColor: 'transparent', strokeWidth: 0,
     shadowColor: 'rgba(0,0,0,0.5)', shadowBlur: 8, shadowX: 2, shadowY: 2,
+    keyframes: [],
     ...overrides,
   }
 }
 
+function parseSrt(content: string): { id: string; startTime: number; endTime: number; text: string }[] {
+  const results: { id: string; startTime: number; endTime: number; text: string }[] = []
+  function toSec(ts: string) {
+    const [h, m, rest] = ts.split(':')
+    const [s, ms] = rest.replace(',', '.').split('.')
+    return (+h) * 3600 + (+m) * 60 + (+s) + +(ms ?? '0') / 1000
+  }
+  const blocks = content.replace(/\r\n/g, '\n').split(/\n\n+/)
+  for (const block of blocks) {
+    const lines = block.trim().split('\n')
+    const timeLine = lines.find(l => l.includes(' --> '))
+    if (!timeLine) continue
+    const [start, end] = timeLine.split(' --> ')
+    const text = lines.slice(lines.indexOf(timeLine) + 1).join('\n').replace(/<[^>]+>/g, '')
+    if (text.trim()) {
+      results.push({ id: crypto.randomUUID(), startTime: toSec(start.trim()), endTime: toSec(end.trim()), text: text.trim() })
+    }
+  }
+  return results
+}
+
 export function TextPanel() {
-  const { addTextClip, addTrack, currentTime, project } = useEditorStore()
+  const { addTextClip, addTrack, currentTime, project, addCaption, updateCaption, removeCaption } = useEditorStore()
+  const [captionOpen, setCaptionOpen] = useState(false)
 
   function addText(preset?: typeof TEXT_PRESETS[number]) {
     // Clips on a track that does not exist would preview and export but never
@@ -98,15 +122,97 @@ export function TextPanel() {
         </div>
       </div>
 
-      {/* Auto Caption */}
-      <div className="p-3" style={{ borderTop: '1px solid var(--color-border)' }}>
-        <p className="text-xs mb-2 font-medium" style={{ color: 'var(--color-text-secondary)' }}>AI Captions</p>
+      {/* Caption Editor */}
+      <div style={{ borderTop: '1px solid var(--color-border)' }}>
         <button
-          className="w-full h-9 rounded text-xs flex items-center justify-center gap-2"
-          style={{ background: 'var(--color-bg-surface)', color: 'var(--color-text-secondary)', border: 'none', cursor: 'pointer' }}
+          className="w-full flex items-center justify-between px-3 py-2"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)' }}
+          onClick={() => setCaptionOpen(v => !v)}
         >
-          ✨ Auto Generate Captions
+          <span className="text-xs font-medium">Caption / Subtitle</span>
+          {captionOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
         </button>
+
+        {captionOpen && (
+          <div className="px-3 pb-3">
+            <div className="flex gap-1.5 mb-2">
+              <button
+                className="flex-1 h-8 rounded text-xs flex items-center justify-center gap-1"
+                style={{ background: 'rgba(255,71,87,0.1)', color: 'var(--color-primary)', border: '1px dashed var(--color-primary)', cursor: 'pointer' }}
+                onClick={() => addCaption({ id: crypto.randomUUID(), startTime: currentTime, endTime: currentTime + 3, text: 'Caption baru' })}
+              >
+                <Plus size={11} /> Tambah
+              </button>
+              <label
+                className="flex-1 h-8 rounded text-xs flex items-center justify-center gap-1 cursor-pointer"
+                style={{ background: 'var(--color-bg-surface)', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)' }}
+                title="Import SRT/VTT file"
+              >
+                Import SRT
+                <input
+                  type="file"
+                  accept=".srt,.vtt"
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    const reader = new FileReader()
+                    reader.onload = ev => {
+                      const text = ev.target?.result as string
+                      parseSrt(text).forEach(c => addCaption(c))
+                    }
+                    reader.readAsText(file)
+                    e.target.value = ''
+                  }}
+                />
+              </label>
+            </div>
+
+            <div className="flex flex-col gap-2" style={{ maxHeight: 240, overflowY: 'auto' }}>
+              {project.captions.length === 0 && (
+                <p className="text-xs text-center py-3" style={{ color: 'var(--color-text-muted)' }}>Belum ada caption</p>
+              )}
+              {[...project.captions].sort((a, b) => a.startTime - b.startTime).map(c => (
+                <div
+                  key={c.id}
+                  className="rounded p-2"
+                  style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-border)' }}
+                >
+                  <textarea
+                    value={c.text}
+                    onChange={e => updateCaption(c.id, { text: e.target.value })}
+                    rows={2}
+                    style={{
+                      width: '100%', resize: 'none', background: 'transparent',
+                      border: 'none', outline: 'none', fontSize: 11,
+                      color: 'var(--color-text-primary)', fontFamily: 'inherit',
+                    }}
+                  />
+                  <div className="flex items-center gap-1 mt-1">
+                    <input
+                      type="number" step={0.1} value={+c.startTime.toFixed(2)}
+                      onChange={e => updateCaption(c.id, { startTime: +e.target.value })}
+                      style={{ width: 52, fontSize: 10, background: 'var(--color-bg-panel)', border: '1px solid var(--color-border)', borderRadius: 3, padding: '1px 4px', color: 'var(--color-text-secondary)' }}
+                    />
+                    <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>→</span>
+                    <input
+                      type="number" step={0.1} value={+c.endTime.toFixed(2)}
+                      onChange={e => updateCaption(c.id, { endTime: +e.target.value })}
+                      style={{ width: 52, fontSize: 10, background: 'var(--color-bg-panel)', border: '1px solid var(--color-border)', borderRadius: 3, padding: '1px 4px', color: 'var(--color-text-secondary)' }}
+                    />
+                    <span style={{ fontSize: 10, color: 'var(--color-text-muted)', flex: 1 }}>s</span>
+                    <button
+                      onClick={() => removeCaption(c.id)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary)', padding: 2 }}
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

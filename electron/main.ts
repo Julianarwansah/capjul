@@ -342,3 +342,13 @@ ipcMain.handle(IPC.mediaExportComposited, async (event, payload: CompositedExpor
     })
   })
 })
+
+ipcMain.handle(IPC.saveRecording, async (_, buffer: ArrayBuffer): Promise<IpcResult<string>> => {
+  try {
+    const tmpPath = path.join(os.tmpdir(), `capjul-recording-${Date.now()}.webm`)
+    await fs.promises.writeFile(tmpPath, Buffer.from(buffer))
+    return ok(tmpPath)
+  } catch (err) {
+    return fail('E_IO', (err as Error).message)
+  }
+})

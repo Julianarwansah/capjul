@@ -1,57 +1,53 @@
 import { useState } from 'react'
+import { useEditorStore } from '../../store/editorStore'
+import { EFFECTS } from '../../shared/effects'
 
 const EFFECT_CATEGORIES = [
-  {
-    name: 'Basic',
-    effects: [
-      { id: 'blur', name: 'Blur', icon: '🌫' },
-      { id: 'glow', name: 'Glow', icon: '✨' },
-      { id: 'sharpen', name: 'Sharpen', icon: '🔆' },
-      { id: 'vignette', name: 'Vignette', icon: '⚫' },
-      { id: 'grain', name: 'Film Grain', icon: '📷' },
-      { id: 'noise', name: 'Noise', icon: '📺' },
-    ]
-  },
-  {
-    name: 'Cinematic',
-    effects: [
-      { id: 'letterbox', name: 'Letterbox', icon: '🎬' },
-      { id: 'lens-flare', name: 'Lens Flare', icon: '🌟' },
-      { id: 'bokeh', name: 'Bokeh', icon: '⭕' },
-      { id: 'light-leak', name: 'Light Leak', icon: '🌈' },
-      { id: 'anamorphic', name: 'Anamorphic', icon: '📽' },
-      { id: 'chromatic', name: 'Chromatic', icon: '🔴' },
-    ]
-  },
-  {
-    name: 'Glitch',
-    effects: [
-      { id: 'glitch1', name: 'Glitch I', icon: '⚡' },
-      { id: 'glitch2', name: 'Glitch II', icon: '💫' },
-      { id: 'rgb-split', name: 'RGB Split', icon: '🔵' },
-      { id: 'scan-lines', name: 'Scanlines', icon: '📻' },
-      { id: 'vhs', name: 'VHS', icon: '📼' },
-      { id: 'distort', name: 'Distort', icon: '🌀' },
-    ]
-  },
-  {
-    name: 'Nature',
-    effects: [
-      { id: 'rain', name: 'Rain', icon: '🌧' },
-      { id: 'snow', name: 'Snow', icon: '❄️' },
-      { id: 'fire', name: 'Fire', icon: '🔥' },
-      { id: 'smoke', name: 'Smoke', icon: '💨' },
-      { id: 'stars', name: 'Stars', icon: '⭐' },
-      { id: 'leaves', name: 'Leaves', icon: '🍃' },
-    ]
-  },
+  { name: 'Basic', ids: ['blur', 'glow', 'sharpen', 'vignette'] },
+  { name: 'Style', ids: ['chromatic', 'noir', 'vivid', 'matte'] },
+  { name: 'Color', ids: ['warm', 'cool', 'grain', 'letterbox'] },
 ]
 
+const EFFECT_ICONS: Record<string, string> = {
+  blur: '🌫', glow: '✨', sharpen: '🔆', vignette: '⚫',
+  grain: '📷', letterbox: '🎬', chromatic: '🔴', noir: '🎞',
+  warm: '🌅', cool: '🧊', vivid: '💥', matte: '🌫',
+}
+
 export function EffectsPanel() {
+  const { selectedClipIds, project, updateClip } = useEditorStore()
   const [activeCategory, setActiveCategory] = useState('Basic')
-  const [activeEffect, setActiveEffect] = useState<string | null>(null)
+  const [intensities, setIntensities] = useState<Record<string, number>>({})
+
+  const selectedClip = selectedClipIds[0]
+    ? project.clips.find(c => c.id === selectedClipIds[0])
+    : null
+
+  const activeEffects = new Set((selectedClip?.effects ?? []).map(e => e.id))
+
+  function toggleEffect(effectId: string) {
+    if (!selectedClip) return
+    const current = selectedClip.effects ?? []
+    const isActive = current.some(e => e.id === effectId)
+    if (isActive) {
+      updateClip(selectedClip.id, { effects: current.filter(e => e.id !== effectId) })
+    } else {
+      const intensity = intensities[effectId] ?? 0.5
+      updateClip(selectedClip.id, { effects: [...current, { id: effectId, intensity }] })
+    }
+  }
+
+  function setIntensity(effectId: string, value: number) {
+    setIntensities(prev => ({ ...prev, [effectId]: value }))
+    if (!selectedClip) return
+    const current = selectedClip.effects ?? []
+    if (current.some(e => e.id === effectId)) {
+      updateClip(selectedClip.id, { effects: current.map(e => e.id === effectId ? { ...e, intensity: value } : e) })
+    }
+  }
 
   const currentCategory = EFFECT_CATEGORIES.find(c => c.name === activeCategory)!
+  const effectsInCategory = currentCategory.ids.map(id => EFFECTS.find(e => e.id === id)).filter(Boolean) as typeof EFFECTS
 
   return (
     <div className="flex flex-col h-full">
@@ -73,39 +69,65 @@ export function EffectsPanel() {
         ))}
       </div>
 
-      {/* Effects grid */}
-      <div className="flex-1 overflow-y-auto p-2">
-        <div className="grid grid-cols-3 gap-2">
-          {currentCategory.effects.map(e => (
-            <button
-              key={e.id}
-              onClick={() => setActiveEffect(e.id === activeEffect ? null : e.id)}
-              className="flex flex-col items-center gap-1.5 p-2 rounded"
-              style={{
-                background: activeEffect === e.id ? 'rgba(255,71,87,0.15)' : 'var(--color-bg-surface)',
-                border: activeEffect === e.id ? '1.5px solid var(--color-primary)' : '1.5px solid transparent',
-                cursor: 'pointer',
-              }}
-            >
-              <div className="text-3xl">{e.icon}</div>
-              <span style={{ fontSize: 10, color: activeEffect === e.id ? 'var(--color-primary)' : 'var(--color-text-secondary)' }}>
-                {e.name}
-              </span>
-            </button>
-          ))}
+      {!selectedClip && (
+        <div className="flex-1 flex items-center justify-center p-4">
+          <p className="text-xs text-center" style={{ color: 'var(--color-text-muted)' }}>
+            Pilih video clip di timeline untuk menambahkan efek
+          </p>
         </div>
-      </div>
+      )}
 
-      {/* Intensity */}
-      {activeEffect && (
-        <div className="p-3 shrink-0" style={{ borderTop: '1px solid var(--color-border)' }}>
-          <div className="flex justify-between mb-1">
-            <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>Intensity</span>
-            <span className="text-xs" style={{ color: 'var(--color-primary)' }}>70%</span>
+      {selectedClip && (
+        <>
+          {/* Effects grid */}
+          <div className="flex-1 overflow-y-auto p-2">
+            <div className="grid grid-cols-3 gap-2">
+              {effectsInCategory.map(e => {
+                const isActive = activeEffects.has(e.id)
+                return (
+                  <button
+                    key={e.id}
+                    onClick={() => toggleEffect(e.id)}
+                    className="flex flex-col items-center gap-1.5 p-2 rounded"
+                    style={{
+                      background: isActive ? 'rgba(255,71,87,0.15)' : 'var(--color-bg-surface)',
+                      border: isActive ? '1.5px solid var(--color-primary)' : '1.5px solid transparent',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ fontSize: 26 }}>{EFFECT_ICONS[e.id] ?? '🎨'}</div>
+                    <span style={{ fontSize: 10, color: isActive ? 'var(--color-primary)' : 'var(--color-text-secondary)' }}>
+                      {e.name}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
           </div>
-          <input type="range" min={0} max={100} defaultValue={70} />
-          <button className="btn-primary w-full mt-2 text-sm">Apply Effect</button>
-        </div>
+
+          {/* Active effect intensity controls */}
+          {(selectedClip.effects ?? []).length > 0 && (
+            <div className="p-3 shrink-0" style={{ borderTop: '1px solid var(--color-border)' }}>
+              <p className="text-xs mb-2" style={{ color: 'var(--color-text-secondary)' }}>Intensitas</p>
+              {(selectedClip.effects ?? []).map(e => {
+                const def = EFFECTS.find(d => d.id === e.id)
+                return (
+                  <div key={e.id} className="mb-2">
+                    <div className="flex justify-between mb-0.5">
+                      <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{def?.name ?? e.id}</span>
+                      <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{Math.round(e.intensity * 100)}%</span>
+                    </div>
+                    <input
+                      type="range" min={0} max={1} step={0.01} value={e.intensity}
+                      onChange={ev => setIntensity(e.id, +ev.target.value)}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </>
       )}
     </div>
   )

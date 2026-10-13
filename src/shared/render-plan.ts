@@ -1,4 +1,4 @@
-import type { MediaFile, Project } from './project-schema'
+import type { Keyframe, MediaFile, Project } from './project-schema'
 import { buildFfmpegColorChain, colorAdjustFactors } from './color-adjust'
 
 // The RenderPlan is the compiled form of a Project: everything the encoder
@@ -33,6 +33,10 @@ export interface RenderLayer {
   brightness: number
   contrast: number
   saturation: number
+  chromaEnabled: boolean
+  chromaColor: string
+  chromaTolerance: number
+  reversed: boolean
 }
 
 export interface RenderAudio {
@@ -44,6 +48,7 @@ export interface RenderAudio {
   volume: number
   fadein: number
   fadeout: number
+  keyframes: Keyframe[]
 }
 
 export interface RenderOverlay {
@@ -98,6 +103,10 @@ function compileLayers(project: Project, inputFor: InputAllocator): RenderLayer[
       brightness: clip.brightness,
       contrast: clip.contrast,
       saturation: clip.saturation,
+      chromaEnabled: clip.chromaEnabled,
+      chromaColor: clip.chromaColor,
+      chromaTolerance: clip.chromaTolerance,
+      reversed: clip.reversed,
     })
   }
   return layers.sort((a, b) => a.z - b.z || a.start - b.start)
@@ -118,6 +127,7 @@ function compileAudio(project: Project, inputFor: InputAllocator): RenderAudio[]
       volume: clip.volume,
       fadein: 0,
       fadeout: 0,
+      keyframes: [],
     })
   }
   for (const clip of project.audioClips) {
@@ -134,6 +144,7 @@ function compileAudio(project: Project, inputFor: InputAllocator): RenderAudio[]
       volume,
       fadein: clip.fadein,
       fadeout: clip.fadeout,
+      keyframes: clip.keyframes ?? [],
     })
   }
   return audio
@@ -231,6 +242,12 @@ function layerChain(plan: RenderPlan, layer: RenderLayer): string {
   const bh = Math.round(plan.height * layer.scaleY)
   const chain = layer.kind === 'image'
     ? [`trim=start=0:end=${round4(layer.end - layer.start)}`, 'setpts=PTS-STARTPTS']
+    : layer.reversed
+    ? [
+        `trim=start=${round4(layer.mediaStart)}:end=${round4(layer.mediaEnd)}`,
+        'reverse',
+        `setpts=(PTS-STARTPTS)/${round4(layer.speed)}`,
+      ]
     : [
         `trim=start=${round4(layer.mediaStart)}:end=${round4(layer.mediaEnd)}`,
         `setpts=(PTS-STARTPTS)/${round4(layer.speed)}`,
@@ -242,6 +259,11 @@ function layerChain(plan: RenderPlan, layer: RenderLayer): string {
     ...colorAdjustChain(layer),
     `fps=${plan.fps}`,
   )
+  if (layer.chromaEnabled) {
+    // Convert hex color to 0xRRGGBB format for FFmpeg
+    const hex = layer.chromaColor.replace('#', '')
+    chain.push(`chromakey=0x${hex}:${round4(layer.chromaTolerance)}:0.1:format=rgba`)
+  }
   if (layer.opacity < 1) chain.push('format=rgba', `colorchannelmixer=aa=${round4(layer.opacity)}`)
   chain.push(`setpts=PTS+${round4(layer.start)}/TB`)
   return chain.join(',')
@@ -279,6 +301,34 @@ export function audibleAudio(inputs: RenderInput[], audio: RenderAudio[]): Rende
   return audio.filter(a => inputs.find(n => n.id === a.inputId)?.hasAudio !== false)
 }
 
+/**
+ * Piecewise-linear volume over stream time, matching the preview's
+ * interpolate() at the same timeline instants. Stream time is timeline time
+ * minus the entry's start: adelay shifts the stream onto the timeline one-to-one,
+ * whatever the speed.
+ */
+export function volumeExpression(keyframes: Keyframe[], fallback: number, start: number): string {
+  const pts = keyframes
+    .filter(k => k.property === 'volume')
+    .sort((a, b) => a.time - b.time)
+    .map(k => ({ t: round4(k.time - start), v: round4(k.value) }))
+  if (pts.length === 0) return String(round4(fallback))
+  let expr = String(pts[pts.length - 1].v)
+  for (let i = pts.length - 2; i >= 0; i--) {
+    const a = pts[i], b = pts[i + 1]
+    const seg = b.t === a.t ? String(b.v) : `${a.v}+(t-${a.t})*${round4((b.v - a.v) / (b.t - a.t))}`
+    expr = `if(lt(t,${b.t}),${seg},${expr})`
+  }
+  return `if(lt(t,${pts[0].t}),${pts[0].v},${expr})`
+}
+
+function volumeFilter(entry: RenderAudio): string {
+  if (!entry.keyframes.some(k => k.property === 'volume')) return `volume=${round4(entry.volume)}`
+  // The expression's commas must stay inside quotes, or ffmpeg reads them as
+  // filter-chain separators.
+  return `volume=volume='${volumeExpression(entry.keyframes, entry.volume, entry.start)}':eval=frame`
+}
+
 /** Audio filter chains. indexOffset shifts input indices when the video comes
  *  from another input (the composited rawvideo pipe is input 0). */
 export function audioGraphFilters(
@@ -293,7 +343,7 @@ export function audioGraphFilters(
       `[${inputIndex.get(entry.inputId)}:a]atrim=start=${round4(entry.mediaStart)}:end=${round4(entry.mediaEnd)}`,
       'asetpts=PTS-STARTPTS',
       ...atempoChain(entry.speed),
-      `volume=${round4(entry.volume)}`,
+      volumeFilter(entry),
     ]
     if (entry.fadein > 0) chain.push(`afade=t=in:st=0:d=${round4(entry.fadein)}`)
     if (entry.fadeout > 0) {

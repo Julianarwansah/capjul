@@ -25,6 +25,8 @@ export function makeClipFromMedia(media: MediaFile, trackId: string, startTime: 
     temperature: 0, tint: 0, sharpness: 0,
     chromaEnabled: false, chromaColor: '#00ff00', chromaTolerance: 0.3,
     stabilize: false,
+    effects: [],
+    keyframes: [],
   }
 }
 
@@ -40,5 +42,6 @@ export function makeAudioClipFromMedia(media: MediaFile, trackId: string, startT
     mediaStart: 0,
     mediaEnd: duration,
     volume: 1, muted: false, fadein: 0, fadeout: 0, speed: 1, pitch: 0,
+    keyframes: [],
   }
 }

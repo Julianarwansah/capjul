@@ -4,6 +4,7 @@ import { layoutText } from './text-layout'
 import { stickerPlacement } from './text-rasterizer'
 import { STICKER_BASE_RATIO } from './sticker-assets'
 import { overlayOrigin, type RenderLayer } from './render-plan'
+import { textTransformAt } from './scene'
 import type { StickerClip, TextClip } from './project-schema'
 
 // Parity here is structural, not pixel-level: CSS rasterization and canvas
@@ -47,6 +48,7 @@ describe('text parity', () => {
     letterSpacing: 0, lineHeight: 1.2,
     strokeColor: 'transparent', strokeWidth: 0,
     shadowColor: 'rgba(0,0,0,0.5)', shadowBlur: 8, shadowX: 2, shadowY: 2,
+    keyframes: [],
   }
 
   it('centres the block where the preview CSS centres it', () => {
@@ -61,6 +63,21 @@ describe('text parity', () => {
     expect(layout.fontSize).toBe(clip.fontSize)
     // preview: fontSize/canvasH as cqh; at export resolution that is clip.fontSize px
     expect(layout.fontSize / H).toBeCloseTo(clip.fontSize / H)
+  })
+
+  it('lands the text box centre where the preview puts it, keyframes included', () => {
+    // rasterizeTextCentred lays out against a zero-sized canvas, which puts the
+    // box centre on the origin - that is what makes the raster's own centre the
+    // box centre, so drawImage(raster, -w/2, -h/2) is the preview's -50%,-50%.
+    const layout = layoutText({ ...clip, x: 0.5, y: 0.5 }, 0, 0, t => t.length * clip.fontSize * 0.6)
+    expect(layout.boxX + layout.boxW / 2).toBeCloseTo(0)
+    expect(layout.boxY + layout.boxH / 2).toBeCloseTo(0)
+
+    // drawText then translates by (x*W, y*H), so a keyframed x moves the box.
+    const kfs = [{ id: 'k', time: 0, property: 'x', value: 0.9 }]
+    const tr = textTransformAt({ ...clip, keyframes: kfs }, 0)
+    expect(tr.x * W).toBeCloseTo(0.9 * W)
+    expect(tr.y * H).toBeCloseTo(clip.y * H)
   })
 })
 
@@ -84,6 +101,8 @@ describe('clip transform parity', () => {
     inputId: 'in0', kind: 'video', z: 0, start: 0, end: 1, mediaStart: 0, mediaEnd: 1,
     speed: 1, opacity: 1, x: 0, y: 0, scaleX: 1, scaleY: 1,
     brightness: 0, contrast: 0, saturation: 0,
+    chromaEnabled: false, chromaColor: '#00ff00', chromaTolerance: 0.3,
+    reversed: false,
     ...over,
   })
 

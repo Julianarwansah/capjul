@@ -1,5 +1,6 @@
 import { buildCssFilter, colorAdjustFactors } from './color-adjust'
-import type { Project, TextClip, StickerClip } from './project-schema'
+import { interpolate } from './keyframe-interpolate'
+import type { Keyframe, Project, TextClip, StickerClip } from './project-schema'
 
 // The Phase 2 scene model: a DOM-independent description of what the compositor
 // must draw, in paint order. The renderer compositor and (later) the preview
@@ -19,7 +20,9 @@ interface SceneLayerBase {
   mediaId: string
   start: number
   end: number
+  /** Static base pose; `keyframes` overrides individual properties over time. */
   transform: SceneTransform
+  keyframes: Keyframe[]
   /** CSS filter string, identical to the preview's, applied via ctx.filter */
   filter: string
 }
@@ -82,6 +85,7 @@ export function compileScene(project: Project): Scene {
         rotation: clip.rotation,
         opacity: clip.opacity,
       },
+      keyframes: clip.keyframes ?? [],
       filter: [clip.filter ?? '', buildCssFilter(colorAdjustFactors(clip))].filter(Boolean).join(' '),
     }
     const layer: SceneLayer = media.type === 'image'
@@ -121,6 +125,34 @@ export function compileScene(project: Project): Scene {
 /** Source time a video layer must show at timeline time t. */
 export function mediaTimeAt(layer: SceneVideoLayer, t: number): number {
   return layer.mediaStart + (t - layer.start) * layer.speed
+}
+
+/** The pose a layer draws with at timeline time t. The compositor and the
+ *  preview both resolve transforms here, which is what keeps them in parity. */
+export function transformAt(keyframes: Keyframe[], base: SceneTransform, t: number): SceneTransform {
+  if (keyframes.length === 0) return base
+  return {
+    x:        interpolate(keyframes, 'x',        t, base.x),
+    y:        interpolate(keyframes, 'y',        t, base.y),
+    scaleX:   interpolate(keyframes, 'scaleX',   t, base.scaleX),
+    scaleY:   interpolate(keyframes, 'scaleY',   t, base.scaleY),
+    rotation: interpolate(keyframes, 'rotation', t, base.rotation),
+    opacity:  interpolate(keyframes, 'opacity',  t, base.opacity),
+  }
+}
+
+/**
+ * Pose of a text clip at timeline time t. Text x/y are absolute canvas
+ * fractions with the box centred on the point, whereas a media layer's x/y are
+ * offsets from the canvas centre - so text resolves through its own helper.
+ * TextClip carries no opacity field; it starts at 1 and can be keyframed.
+ */
+export function textTransformAt(clip: TextClip, t: number): SceneTransform {
+  return transformAt(clip.keyframes ?? [], {
+    x: clip.x, y: clip.y,
+    scaleX: clip.scaleX, scaleY: clip.scaleY,
+    rotation: clip.rotation, opacity: 1,
+  }, t)
 }
 
 export function isActiveAt(layer: SceneLayer, t: number): boolean {

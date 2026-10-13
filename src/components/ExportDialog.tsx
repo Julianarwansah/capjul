@@ -34,6 +34,7 @@ export function ExportDialog() {
   const [error, setError] = useState<string | null>(null)
   const [warning, setWarning] = useState<string | null>(null)
   const [engine, setEngine] = useState<'compositor' | 'filtergraph'>('compositor')
+  const [exportSrt, setExportSrt] = useState(project.captions.length > 0)
 
   const res = RESOLUTIONS.find(r => r.label === resolution)!
 
@@ -126,9 +127,32 @@ export function ExportDialog() {
       if (exported.error.code !== 'E_CANCELLED') setError(exported.error.message)
     } else {
       setExportProgress(100)
+      if (exportSrt && project.captions.length > 0) downloadSrt()
       setDone(true)
     }
     return 'done'
+  }
+
+  function downloadSrt() {
+    function pad2(n: number) { return String(Math.floor(n)).padStart(2, '0') }
+    function toTimecode(s: number) {
+      const h = Math.floor(s / 3600)
+      const m = Math.floor((s % 3600) / 60)
+      const sec = Math.floor(s % 60)
+      const ms = Math.round((s % 1) * 1000)
+      return `${pad2(h)}:${pad2(m)}:${pad2(sec)},${String(ms).padStart(3, '0')}`
+    }
+    const sorted = [...project.captions].sort((a, b) => a.startTime - b.startTime)
+    const srt = sorted.map((c, i) =>
+      `${i + 1}\n${toTimecode(c.startTime)} --> ${toTimecode(c.endTime)}\n${c.text}`
+    ).join('\n\n')
+    const blob = new Blob([srt], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${project.name}.srt`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   async function runFiltergraph(api: Api) {
@@ -168,6 +192,7 @@ export function ExportDialog() {
       if (exported.error.code !== 'E_CANCELLED') setError(exported.error.message)
     } else {
       setExportProgress(100)
+      if (exportSrt && project.captions.length > 0) downloadSrt()
       setDone(true)
     }
   }
@@ -322,6 +347,20 @@ export function ExportDialog() {
                   ))}
                 </div>
               </div>
+
+              {/* SRT export option */}
+              {project.captions.length > 0 && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={exportSrt}
+                    onChange={e => setExportSrt(e.target.checked)}
+                  />
+                  <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                    Export subtitle file (.srt) — {project.captions.length} caption(s)
+                  </span>
+                </label>
+              )}
 
               {/* Summary */}
               <div className="p-3 rounded" style={{ background: 'var(--color-bg-surface)' }}>

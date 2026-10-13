@@ -24,6 +24,7 @@ function makeClip(over: Partial<Clip> = {}): Clip {
     temperature: 0, tint: 0, sharpness: 0,
     chromaEnabled: false, chromaColor: '#00ff00', chromaTolerance: 0.3,
     stabilize: false,
+    effects: [], keyframes: [],
     ...over,
   }
 }
@@ -38,6 +39,7 @@ function makeTextClip(over: Partial<TextClip> = {}): TextClip {
     letterSpacing: 0, lineHeight: 1.2,
     strokeColor: 'transparent', strokeWidth: 0,
     shadowColor: 'rgba(0,0,0,0.5)', shadowBlur: 8, shadowX: 2, shadowY: 2,
+    keyframes: [],
     ...over,
   }
 }
@@ -47,6 +49,7 @@ function makeAudioClip(over: Partial<AudioClip> = {}): AudioClip {
     id: crypto.randomUUID(), trackId: 'main-audio', mediaId: 'media-1',
     startTime: 0, duration: 5, mediaStart: 0, mediaEnd: 5,
     volume: 1, muted: false, fadein: 0, fadeout: 0, speed: 1, pitch: 0,
+    keyframes: [],
     ...over,
   }
 }

@@ -35,6 +35,7 @@ const clip = {
   temperature: 0, tint: 0, sharpness: 0,
   chromaEnabled: false, chromaColor: '#00ff00', chromaTolerance: 0.3,
   stabilize: false,
+  effects: [], keyframes: [],
 }
 
 describe('serialize', () => {

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { StickerClipSchema, TextClipSchema } from './project-schema'
+import { KeyframeSchema, StickerClipSchema, TextClipSchema } from './project-schema'
 
 // Validation for the render plan crossing IPC into main. Kept out of
 // ipc-contract.ts and render-plan.ts so neither the preload nor the renderer
@@ -48,6 +48,7 @@ export const RenderPlanSchema = z.object({
     volume: z.number(),
     fadein: z.number(),
     fadeout: z.number(),
+    keyframes: z.array(KeyframeSchema).default([]),
   })),
   output: z.object({
     format: z.enum(['mp4', 'mov', 'webm']),
@@ -78,11 +79,13 @@ const SceneLayerSchema = z.discriminatedUnion('kind', [
     mediaId: z.string(), start: z.number(), end: z.number(),
     transform: SceneTransformSchema, filter: z.string(),
     mediaStart: z.number(), speed: z.number(),
+    keyframes: z.array(KeyframeSchema).default([]),
   }),
   z.object({
     kind: z.literal('image'),
     mediaId: z.string(), start: z.number(), end: z.number(),
     transform: SceneTransformSchema, filter: z.string(),
+    keyframes: z.array(KeyframeSchema).default([]),
   }),
   z.object({ kind: z.literal('text'), clip: TextClipSchema, start: z.number(), end: z.number() }),
   z.object({ kind: z.literal('sticker'), clip: StickerClipSchema, start: z.number(), end: z.number() }),

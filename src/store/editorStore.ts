@@ -7,7 +7,7 @@ import {
 } from './defaults'
 import type {
   Project, MediaFile, Clip, TextClip, StickerClip, AudioClip,
-  Track, Transition, Caption, LeftPanelTab, AspectRatio
+  Track, Transition, Caption, Keyframe, LeftPanelTab, AspectRatio
 } from '../types'
 
 interface EditorState {
@@ -49,7 +49,11 @@ interface EditorState {
   updateClip: (id: string, changes: Partial<Clip>) => void
   removeClip: (id: string) => void
   removeClips: (ids: string[]) => void
+  rippleDelete: (id: string, kind: 'video' | 'audio' | 'text' | 'sticker') => void
   splitClip: (id: string, time: number) => void
+  splitAudioClip: (id: string, time: number) => void
+  splitTextClip: (id: string, time: number) => void
+  splitStickerClip: (id: string, time: number) => void
 
   addTextClip: (clip: TextClip) => void
   updateTextClip: (id: string, changes: Partial<TextClip>) => void
@@ -65,6 +69,13 @@ interface EditorState {
 
   addTransition: (t: Transition) => void
   removeTransition: (id: string) => void
+
+  addClipKeyframe: (clipId: string, kf: Keyframe) => void
+  removeClipKeyframe: (clipId: string, kfId: string) => void
+  addTextKeyframe: (clipId: string, kf: Keyframe) => void
+  removeTextKeyframe: (clipId: string, kfId: string) => void
+  addAudioKeyframe: (clipId: string, kf: Keyframe) => void
+  removeAudioKeyframe: (clipId: string, kfId: string) => void
 
   addCaption: (c: Caption) => void
   updateCaption: (id: string, changes: Partial<Caption>) => void
@@ -149,6 +160,25 @@ export const useEditorStore = create<EditorState>()(
       const idSet = new Set(ids)
       get().mutate(p => ({ ...p, clips: p.clips.filter(c => !idSet.has(c.id)) }))
     },
+    rippleDelete: (id, kind) => get().mutate(p => {
+      function ripple<T extends { id: string; trackId: string; startTime: number; duration: number }>(
+        list: T[], targetId: string
+      ): T[] {
+        const target = list.find(c => c.id === targetId)
+        if (!target) return list
+        const gapStart = target.startTime
+        const gapSize = target.duration
+        return list
+          .filter(c => c.id !== targetId)
+          .map(c => c.trackId === target.trackId && c.startTime >= gapStart
+            ? { ...c, startTime: c.startTime - gapSize }
+            : c)
+      }
+      if (kind === 'video') return { ...p, clips: ripple(p.clips, id) }
+      if (kind === 'audio') return { ...p, audioClips: ripple(p.audioClips, id) }
+      if (kind === 'text') return { ...p, textClips: ripple(p.textClips, id) }
+      return { ...p, stickerClips: ripple(p.stickerClips, id) }
+    }),
     splitClip: (id, time) => {
       const clip = get().project.clips.find(c => c.id === id)
       if (!clip || time <= clip.startTime || time >= clip.startTime + clip.duration) return
@@ -156,6 +186,30 @@ export const useEditorStore = create<EditorState>()(
       const first: Clip = { ...clip, id: crypto.randomUUID(), duration: elapsed, mediaEnd: clip.mediaStart + elapsed * clip.speed }
       const second: Clip = { ...clip, id: crypto.randomUUID(), startTime: time, duration: clip.duration - elapsed, mediaStart: clip.mediaStart + elapsed * clip.speed }
       get().mutate(p => ({ ...p, clips: p.clips.flatMap(c => c.id === id ? [first, second] : [c]) }))
+    },
+    splitAudioClip: (id, time) => {
+      const clip = get().project.audioClips.find(c => c.id === id)
+      if (!clip || time <= clip.startTime || time >= clip.startTime + clip.duration) return
+      const elapsed = time - clip.startTime
+      const first: AudioClip = { ...clip, id: crypto.randomUUID(), duration: elapsed, mediaEnd: clip.mediaStart + elapsed * clip.speed }
+      const second: AudioClip = { ...clip, id: crypto.randomUUID(), startTime: time, duration: clip.duration - elapsed, mediaStart: clip.mediaStart + elapsed * clip.speed }
+      get().mutate(p => ({ ...p, audioClips: p.audioClips.flatMap(c => c.id === id ? [first, second] : [c]) }))
+    },
+    splitTextClip: (id, time) => {
+      const clip = get().project.textClips.find(c => c.id === id)
+      if (!clip || time <= clip.startTime || time >= clip.startTime + clip.duration) return
+      const elapsed = time - clip.startTime
+      const first: TextClip = { ...clip, id: crypto.randomUUID(), duration: elapsed }
+      const second: TextClip = { ...clip, id: crypto.randomUUID(), startTime: time, duration: clip.duration - elapsed }
+      get().mutate(p => ({ ...p, textClips: p.textClips.flatMap(c => c.id === id ? [first, second] : [c]) }))
+    },
+    splitStickerClip: (id, time) => {
+      const clip = get().project.stickerClips.find(c => c.id === id)
+      if (!clip || time <= clip.startTime || time >= clip.startTime + clip.duration) return
+      const elapsed = time - clip.startTime
+      const first: StickerClip = { ...clip, id: crypto.randomUUID(), duration: elapsed }
+      const second: StickerClip = { ...clip, id: crypto.randomUUID(), startTime: time, duration: clip.duration - elapsed }
+      get().mutate(p => ({ ...p, stickerClips: p.stickerClips.flatMap(c => c.id === id ? [first, second] : [c]) }))
     },
 
     addTextClip: (clip) => get().mutate(p => ({ ...p, textClips: [...p.textClips, clip] })),
@@ -181,6 +235,43 @@ export const useEditorStore = create<EditorState>()(
 
     addTransition: (t) => get().mutate(p => ({ ...p, transitions: [...p.transitions, t] })),
     removeTransition: (id) => get().mutate(p => ({ ...p, transitions: p.transitions.filter(t => t.id !== id) })),
+
+    addClipKeyframe: (clipId, kf) => get().mutate(p => ({
+      ...p,
+      clips: p.clips.map(c => c.id === clipId
+        ? { ...c, keyframes: [...(c.keyframes ?? []).filter(k => !(k.property === kf.property && Math.abs(k.time - kf.time) < 0.05)), kf] }
+        : c),
+    })),
+    removeClipKeyframe: (clipId, kfId) => get().mutate(p => ({
+      ...p,
+      clips: p.clips.map(c => c.id === clipId
+        ? { ...c, keyframes: (c.keyframes ?? []).filter(k => k.id !== kfId) }
+        : c),
+    })),
+    addTextKeyframe: (clipId, kf) => get().mutate(p => ({
+      ...p,
+      textClips: p.textClips.map(c => c.id === clipId
+        ? { ...c, keyframes: [...(c.keyframes ?? []).filter(k => !(k.property === kf.property && Math.abs(k.time - kf.time) < 0.05)), kf] }
+        : c),
+    })),
+    removeTextKeyframe: (clipId, kfId) => get().mutate(p => ({
+      ...p,
+      textClips: p.textClips.map(c => c.id === clipId
+        ? { ...c, keyframes: (c.keyframes ?? []).filter(k => k.id !== kfId) }
+        : c),
+    })),
+    addAudioKeyframe: (clipId, kf) => get().mutate(p => ({
+      ...p,
+      audioClips: p.audioClips.map(c => c.id === clipId
+        ? { ...c, keyframes: [...(c.keyframes ?? []).filter(k => !(k.property === kf.property && Math.abs(k.time - kf.time) < 0.05)), kf] }
+        : c),
+    })),
+    removeAudioKeyframe: (clipId, kfId) => get().mutate(p => ({
+      ...p,
+      audioClips: p.audioClips.map(c => c.id === clipId
+        ? { ...c, keyframes: (c.keyframes ?? []).filter(k => k.id !== kfId) }
+        : c),
+    })),
 
     addCaption: (c) => get().mutate(p => ({ ...p, captions: [...p.captions, c] })),
     updateCaption: (id, changes) => get().mutate(

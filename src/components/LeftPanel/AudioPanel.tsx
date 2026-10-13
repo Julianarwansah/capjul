@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Music2, Mic, Volume2, Upload, Plus } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { Music2, Mic, Volume2, Upload, Plus, Square } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import type { AudioClip, MediaFile } from '../../types'
 
@@ -17,8 +17,54 @@ const SOUND_EFFECTS = [
 const MUSIC_MOODS = ['Upbeat', 'Calm', 'Dramatic', 'Happy', 'Sad', 'Energetic', 'Romantic', 'Epic']
 
 export function AudioPanel() {
-  const { addMedia, addAudioClip, currentTime, project } = useEditorStore()
+  const { addMedia, addAudioClip, currentTime, project, addTrack } = useEditorStore()
   const [activeTab, setActiveTab] = useState<'music' | 'effects' | 'voiceover'>('music')
+  const [recording, setRecording] = useState(false)
+  const [recordingTime, setRecordingTime] = useState(0)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const recorder = new MediaRecorder(stream)
+      chunksRef.current = []
+      recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop())
+        if (timerRef.current) clearInterval(timerRef.current)
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
+        const arrayBuffer = await blob.arrayBuffer()
+        const result = await window.electronAPI?.saveRecording?.(arrayBuffer)
+        if (result?.ok) {
+          const name = result.value.split('/').pop() ?? 'voiceover.webm'
+          const mediaFile: MediaFile = { id: crypto.randomUUID(), path: result.value, name, type: 'audio', duration: recordingTime, size: blob.size }
+          addMedia([mediaFile])
+          const trackId = project.tracks.find(t => t.type === 'audio')?.id ?? addTrack('audio')
+          const clip: AudioClip = {
+            id: crypto.randomUUID(), trackId, mediaId: mediaFile.id,
+            startTime: currentTime, duration: recordingTime, mediaStart: 0, mediaEnd: recordingTime,
+            volume: 1, muted: false, fadein: 0, fadeout: 0, speed: 1, pitch: 0, keyframes: [],
+          }
+          addAudioClip(clip)
+        }
+        setRecordingTime(0)
+        setRecording(false)
+      }
+      recorder.start()
+      mediaRecorderRef.current = recorder
+      setRecording(true)
+      setRecordingTime(0)
+      timerRef.current = setInterval(() => setRecordingTime(t => t + 0.1), 100)
+    } catch {
+      alert('Tidak bisa mengakses mikrofon.')
+    }
+  }
+
+  function stopRecording() {
+    mediaRecorderRef.current?.stop()
+  }
 
   async function importAudio() {
     const opened = await window.electronAPI?.openMedia()
@@ -34,6 +80,7 @@ export function AudioPanel() {
         id: crypto.randomUUID(), trackId: audioTrack.id, mediaId: mediaFile.id,
         startTime: currentTime, duration: 30, mediaStart: 0, mediaEnd: 30,
         volume: 1, muted: false, fadein: 0, fadeout: 0, speed: 1, pitch: 0,
+        keyframes: [],
       }
       addAudioClip(clip)
     }
@@ -125,29 +172,31 @@ export function AudioPanel() {
 
         {activeTab === 'voiceover' && (
           <div className="p-6 flex flex-col items-center gap-4">
-            <div className="w-20 h-20 rounded-full flex items-center justify-center"
-              style={{ background: 'rgba(255,71,87,0.12)', border: '2px dashed var(--color-primary)' }}>
-              <Mic size={32} style={{ color: 'var(--color-primary)' }} />
-            </div>
-            <p className="text-sm text-center" style={{ color: 'var(--color-text-secondary)' }}>
-              Click to start recording your voiceover
-            </p>
-            <button className="btn-primary px-8">
-              Start Recording
+            <button
+              onClick={recording ? stopRecording : startRecording}
+              className="w-20 h-20 rounded-full flex items-center justify-center"
+              style={{
+                background: recording ? 'rgba(255,71,87,0.25)' : 'rgba(255,71,87,0.12)',
+                border: `2px ${recording ? 'solid' : 'dashed'} var(--color-primary)`,
+                cursor: 'pointer',
+                animation: recording ? 'pulse 1s infinite' : 'none',
+              }}
+            >
+              {recording ? <Square size={28} style={{ color: 'var(--color-primary)' }} /> : <Mic size={32} style={{ color: 'var(--color-primary)' }} />}
             </button>
-            <div className="w-full mt-4">
-              <p className="text-xs mb-2" style={{ color: 'var(--color-text-secondary)' }}>Voice Settings</p>
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Noise Reduction</span>
-                  <input type="checkbox" defaultChecked />
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Auto Level</span>
-                  <input type="checkbox" defaultChecked />
-                </div>
+
+            {recording && (
+              <div className="flex items-center gap-2">
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-primary)', animation: 'pulse 1s infinite' }} />
+                <span className="text-sm font-mono" style={{ color: 'var(--color-primary)' }}>
+                  {Math.floor(recordingTime / 60)}:{String(Math.floor(recordingTime % 60)).padStart(2, '0')}.{String(Math.floor((recordingTime * 10) % 10))}
+                </span>
               </div>
-            </div>
+            )}
+
+            <p className="text-xs text-center" style={{ color: 'var(--color-text-secondary)' }}>
+              {recording ? 'Klik untuk berhenti merekam' : 'Klik untuk mulai merekam voiceover'}
+            </p>
           </div>
         )}
       </div>

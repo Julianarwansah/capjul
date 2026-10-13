@@ -39,4 +39,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on(IPC.exportProgress, (_, p) => cb(p))
     return () => ipcRenderer.removeAllListeners(IPC.exportProgress)
   },
+  saveRecording: (buffer: ArrayBuffer) => ipcRenderer.invoke(IPC.saveRecording, buffer),
 } satisfies ElectronApi)
