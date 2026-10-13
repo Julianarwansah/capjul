@@ -19,11 +19,11 @@ function formatDuration(s: number) {
 async function probeDimensions(path: string) {
   const empty = { duration: 0, width: 0, height: 0 }
   try {
-    const info = await window.electronAPI?.probeMedia(path)
-    if (!info) return empty
-    const vs = info.streams?.find((s: FfprobeStream) => s.codec_type === 'video')
+    const probed = await window.electronAPI?.probeMedia(path)
+    if (!probed?.ok) return empty
+    const vs = probed.value.streams.find((s: FfprobeStream) => s.codec_type === 'video')
     return {
-      duration: parseFloat(info.format?.duration ?? '0'),
+      duration: parseFloat(probed.value.format.duration ?? '0'),
       width: vs?.width ?? 0,
       height: vs?.height ?? 0,
     }
@@ -47,7 +47,8 @@ export function MediaPanel() {
   })
 
   async function importFiles() {
-    const paths = await window.electronAPI?.openMedia() ?? []
+    const opened = await window.electronAPI?.openMedia()
+    const paths = opened?.ok ? opened.value : []
     if (!paths.length) return
     const newFiles: MediaFile[] = []
     for (const p of paths) {

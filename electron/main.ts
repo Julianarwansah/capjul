@@ -4,6 +4,14 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { spawn, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import {
+  IPC, fail, ok,
+  type ExportRequest, type IpcResult,
+} from '../src/shared/ipc-contract'
+import { ExportRequestSchema } from '../src/shared/export-request'
+import { FfprobeResultSchema, type FfprobeResult } from '../src/shared/ffprobe'
+import type { Project } from '../src/shared/project-schema'
+import { getLastSavedPath, mapFsError, readProjectFile, writeProjectFile } from './project-store'
 
 const execFileAsync = promisify(execFile)
 
@@ -53,8 +61,8 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 
-// IPC: Open media files
-ipcMain.handle('dialog:openMedia', async () => {
+// IPC: open media files
+ipcMain.handle(IPC.dialogOpenMedia, async (): Promise<IpcResult<string[]>> => {
   const result = await dialog.showOpenDialog(mainWindow!, {
     properties: ['openFile', 'multiSelections'],
     filters: [
@@ -64,38 +72,49 @@ ipcMain.handle('dialog:openMedia', async () => {
       { name: 'Image', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'] },
     ],
   })
-  return result.canceled ? [] : result.filePaths
+  return ok(result.canceled ? [] : result.filePaths)
 })
 
-// IPC: Save project
-ipcMain.handle('dialog:saveProject', async (_, data: string) => {
-  const result = await dialog.showSaveDialog(mainWindow!, {
-    filters: [{ name: 'CapJul Project', extensions: ['cjp'] }],
-    defaultPath: 'untitled.cjp',
-  })
-  if (!result.canceled && result.filePath) {
-    fs.writeFileSync(result.filePath, data, 'utf-8')
-    return result.filePath
+// IPC: save project. Serialization, validation and the atomic write all happen
+// here; the renderer sends a Project object, never a JSON string.
+ipcMain.handle(IPC.projectSave, async (_, project: Project, savePath?: string): Promise<IpcResult<string>> => {
+  let target = savePath ?? getLastSavedPath()
+  if (!target) {
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      filters: [{ name: 'CapJul Project', extensions: ['cjp'] }],
+      defaultPath: 'untitled.cjp',
+    })
+    if (result.canceled || !result.filePath) return fail('E_CANCELLED', 'save cancelled')
+    target = result.filePath
   }
-  return null
+  return writeProjectFile(target, project)
 })
 
-// IPC: Load project
-ipcMain.handle('dialog:openProject', async () => {
+// IPC: open project. Parse, migrate and validate in main so untrusted file
+// content never crosses the boundary as a raw string.
+ipcMain.handle(IPC.projectOpen, async (): Promise<IpcResult<Project>> => {
   const result = await dialog.showOpenDialog(mainWindow!, {
     filters: [{ name: 'CapJul Project', extensions: ['cjp'] }],
     properties: ['openFile'],
   })
-  if (!result.canceled && result.filePaths[0]) {
-    return fs.readFileSync(result.filePaths[0], 'utf-8')
-  }
-  return null
+  if (result.canceled || !result.filePaths[0]) return fail('E_CANCELLED', 'open cancelled')
+  return readProjectFile(result.filePaths[0])
 })
 
-// IPC: Get media info using ffprobe.
-// Arguments go to execFile as an array, never through a shell — paths arrive from
-// drag-and-drop and may contain $(...), backticks or quotes.
-ipcMain.handle('ffmpeg:probe', async (_, filePath: string) => {
+// IPC: probe media info with ffprobe.
+// Arguments go to execFile as an array, never through a shell — paths arrive
+// from drag-and-drop and may contain $(...), backticks or quotes.
+ipcMain.handle(IPC.mediaProbe, async (_, filePath: string): Promise<IpcResult<FfprobeResult>> => {
+  if (typeof filePath !== 'string' || filePath.length === 0) {
+    return fail('E_VALIDATION', 'probe requires a non-empty path')
+  }
+  try {
+    const stat = await fs.promises.stat(filePath)
+    if (!stat.isFile()) return fail('E_VALIDATION', 'path is not a regular file')
+  } catch (err) {
+    const mapped = mapFsError(err)
+    return fail(mapped.code, mapped.message)
+  }
   try {
     const { stdout } = await execFileAsync('ffprobe', [
       '-v', 'quiet',
@@ -103,65 +122,68 @@ ipcMain.handle('ffmpeg:probe', async (_, filePath: string) => {
       '-show_streams', '-show_format',
       filePath,
     ], { encoding: 'utf-8', maxBuffer: FFPROBE_MAX_BUFFER })
-    return JSON.parse(stdout)
+    const parsed = FfprobeResultSchema.safeParse(JSON.parse(stdout))
+    if (!parsed.success) return fail('E_CORRUPT', 'ffprobe output did not match the expected shape')
+    return ok(parsed.data)
   } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return fail('E_FFMPEG_MISSING', 'ffprobe was not found; install FFmpeg and put it on PATH')
+    }
     console.error('[ffprobe] failed for', filePath, err instanceof Error ? err.message : err)
-    return null
+    return fail('E_CORRUPT', 'ffprobe could not read this file')
   }
 })
 
-// IPC: Export video with FFmpeg
-ipcMain.handle('ffmpeg:export', async (_, options: ExportOptions) => {
+// IPC: export video with FFmpeg
+ipcMain.handle(IPC.mediaExport, async (_, request: ExportRequest): Promise<IpcResult<string>> => {
+  const validated = ExportRequestSchema.safeParse(request)
+  if (!validated.success) {
+    const issue = validated.error.issues[0]
+    return fail('E_VALIDATION', `export request invalid at "${issue.path.join('.')}"`)
+  }
+  const options = validated.data
+
   const result = await dialog.showSaveDialog(mainWindow!, {
     filters: [
       { name: 'MP4 Video', extensions: ['mp4'] },
       { name: 'MOV Video', extensions: ['mov'] },
       { name: 'WebM Video', extensions: ['webm'] },
     ],
-    defaultPath: `export_${Date.now()}.mp4`,
+    defaultPath: `export_${Date.now()}.${options.format}`,
   })
-  if (result.canceled || !result.filePath) return null
+  if (result.canceled || !result.filePath) return fail('E_CANCELLED', 'export cancelled')
+  const outputPath = result.filePath
 
-  return new Promise((resolve, reject) => {
-    const args = buildFFmpegArgs(options, result.filePath!)
-    const proc = spawn('ffmpeg', args)
-    let progress = 0
+  return new Promise<IpcResult<string>>((resolve) => {
+    const proc = spawn('ffmpeg', buildFFmpegArgs(options, outputPath))
 
     proc.stderr.on('data', (data: Buffer) => {
-      const text = data.toString()
-      const timeMatch = text.match(/time=(\d+):(\d+):(\d+\.\d+)/)
-      if (timeMatch) {
-        const secs = +timeMatch[1] * 3600 + +timeMatch[2] * 60 + +timeMatch[3]
-        progress = options.duration > 0
-          ? Math.min(99, Math.round((secs / options.duration) * 100))
-          : 0
-        mainWindow?.webContents.send('export:progress', progress)
-      }
+      const timeMatch = data.toString().match(/time=(\d+):(\d+):(\d+\.\d+)/)
+      if (!timeMatch) return
+      const secs = +timeMatch[1] * 3600 + +timeMatch[2] * 60 + +timeMatch[3]
+      const percent = options.duration > 0
+        ? Math.min(99, Math.round((secs / options.duration) * 100))
+        : 0
+      mainWindow?.webContents.send(IPC.exportProgress, percent)
+    })
+
+    proc.on('error', (err) => {
+      const missing = (err as NodeJS.ErrnoException).code === 'ENOENT'
+      resolve(fail(missing ? 'E_FFMPEG_MISSING' : 'E_EXPORT_FAILED', err.message))
     })
 
     proc.on('close', (code: number) => {
       if (code === 0) {
-        mainWindow?.webContents.send('export:progress', 100)
-        resolve(result.filePath)
+        mainWindow?.webContents.send(IPC.exportProgress, 100)
+        resolve(ok(outputPath))
       } else {
-        reject(new Error('FFmpeg export failed'))
+        resolve(fail('E_EXPORT_FAILED', `ffmpeg exited with code ${code}`))
       }
     })
   })
 })
 
-interface ExportOptions {
-  inputs: Array<{ path: string; start: number; end: number }>
-  duration: number
-  width: number
-  height: number
-  fps: number
-  videoBitrate: string
-  audioBitrate: string
-  format: string
-}
-
-function buildFFmpegArgs(options: ExportOptions, output: string): string[] {
+function buildFFmpegArgs(options: ExportRequest, output: string): string[] {
   const args: string[] = ['-y']
   for (const input of options.inputs) {
     args.push('-ss', String(input.start), '-to', String(input.end), '-i', input.path)

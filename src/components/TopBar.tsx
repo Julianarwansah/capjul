@@ -20,19 +20,22 @@ export function TopBar() {
   const canRedo = historyIndex < history.length - 1
 
   async function handleOpen() {
-    const data = await window.electronAPI?.openProject()
-    if (data) {
-      try {
-        useEditorStore.getState().loadProject(JSON.parse(data))
-      } catch (err) {
-        console.error('[project] failed to parse project file', err instanceof Error ? err.message : err)
-        alert('Failed to open project: file may be corrupted.')
+    const opened = await window.electronAPI?.openProject()
+    if (!opened) return
+    if (!opened.ok) {
+      if (opened.error.code !== 'E_CANCELLED') {
+        alert(`Failed to open project: ${opened.error.message}`)
       }
+      return
     }
+    useEditorStore.getState().loadProject(opened.value)
   }
 
   async function handleSave() {
-    await window.electronAPI?.saveProject(JSON.stringify(project))
+    const saved = await window.electronAPI?.saveProject(project)
+    if (saved && !saved.ok && saved.error.code !== 'E_CANCELLED') {
+      alert(`Save failed: ${saved.error.message}`)
+    }
   }
 
   function handleNew() {

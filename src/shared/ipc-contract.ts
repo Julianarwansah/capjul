@@ -1,5 +1,11 @@
+import type { ExportRequest } from './export-request'
 import type { FfprobeResult } from './ffprobe'
 import type { Project } from './project-schema'
+
+export type { ExportRequest } from './export-request'
+
+// This module must stay free of runtime dependencies: the preload imports it,
+// and anything imported here at value level is bundled into the preload.
 
 // The single source of truth for the renderer <-> main boundary. Main, preload
 // and the renderer all derive their types from this module, so a channel added
@@ -22,12 +28,14 @@ export type ErrorCode =
   | 'E_NOT_FOUND'
   | 'E_PERMISSION'
   | 'E_DISK_FULL'
+  | 'E_IO'
   | 'E_CORRUPT'
   | 'E_VALIDATION'
   | 'E_FUTURE_VERSION'
   | 'E_UNSUPPORTED_VERSION'
   | 'E_TOO_LARGE'
   | 'E_FFMPEG_MISSING'
+  | 'E_EXPORT_FAILED'
 
 // Errors cross IPC as values: thrown exceptions lose their shape in transit.
 export type IpcResult<T> =
@@ -41,17 +49,6 @@ export const fail = (code: ErrorCode, message: string): IpcResult<never> =>
 export interface RecoveryInfo {
   at: number
   name: string
-}
-
-export interface ExportRequest {
-  inputs: Array<{ path: string; start: number; end: number }>
-  duration: number
-  width: number
-  height: number
-  fps: number
-  videoBitrate: string
-  audioBitrate: string
-  format: 'mp4' | 'mov' | 'webm'
 }
 
 export interface ElectronApi {

@@ -14,7 +14,6 @@ export type {
   Project,
   ProjectFile,
 } from '../shared/project-schema'
-export { CURRENT_SCHEMA_VERSION } from '../shared/project-schema'
 export type { FfprobeStream, FfprobeResult } from '../shared/ffprobe'
 
 export type AspectRatio = '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '2:1' | '2.35:1' | '1.85:1'

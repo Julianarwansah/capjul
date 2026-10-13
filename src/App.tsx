@@ -7,19 +7,11 @@ import { Timeline } from './components/Timeline'
 import { ExportDialog } from './components/ExportDialog'
 import { ProjectSettings } from './components/ProjectSettings'
 import { useEditorStore } from './store/editorStore'
-import type { FfprobeResult, ExportOptions } from './types'
+import type { ElectronApi } from './shared/ipc-contract'
 
 declare global {
   interface Window {
-    electronAPI?: {
-      getPathForFile: (file: File) => string
-      openMedia: () => Promise<string[]>
-      saveProject: (data: string) => Promise<string | null>
-      openProject: () => Promise<string | null>
-      probeMedia: (path: string) => Promise<FfprobeResult | null>
-      exportVideo: (options: ExportOptions) => Promise<string | null>
-      onExportProgress: (cb: (progress: number) => void) => (() => void) | undefined
-    }
+    electronAPI?: ElectronApi
   }
 }
 
@@ -32,7 +24,7 @@ export default function App() {
   } = useEditorStore()
 
   // Keyboard shortcuts
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+  const handleKeyDown = useCallback(async (e: KeyboardEvent) => {
     const tag = (e.target as HTMLElement).tagName
     if (tag === 'INPUT' || tag === 'TEXTAREA') return
 
@@ -50,7 +42,10 @@ export default function App() {
       clearSelection()
     } else if (e.code === 'KeyS' && mod) {
       e.preventDefault()
-      window.electronAPI?.saveProject(JSON.stringify(project))
+      const saved = await window.electronAPI?.saveProject(project)
+      if (saved && !saved.ok && saved.error.code !== 'E_CANCELLED') {
+        alert(`Save failed: ${saved.error.message}`)
+      }
     } else if (e.code === 'KeyB') {
       // Split at playhead
       selectedClipIds.forEach(id => splitClip(id, currentTime))

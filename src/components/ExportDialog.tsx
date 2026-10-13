@@ -13,14 +13,15 @@ const RESOLUTIONS = [
 ]
 
 const FPS_OPTIONS = [24, 25, 30, 50, 60]
-const FORMATS = ['mp4', 'mov', 'webm']
+const FORMATS = ['mp4', 'mov', 'webm'] as const
+type ExportFormat = (typeof FORMATS)[number]
 const AUDIO_BITRATES = ['128k', '192k', '256k', '320k']
 
 export function ExportDialog() {
   const { project, setShowExportDialog, isExporting, exportProgress, setIsExporting, setExportProgress } = useEditorStore()
   const [resolution, setResolution] = useState('1080p')
   const [fps, setFps] = useState(30)
-  const [format, setFormat] = useState('mp4')
+  const [format, setFormat] = useState<ExportFormat>('mp4')
   const [audioBitrate, setAudioBitrate] = useState('192k')
   const [done, setDone] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -56,7 +57,7 @@ export function ExportDialog() {
     const cleanup = api.onExportProgress(setExportProgress)
 
     try {
-      const outputPath = await api.exportVideo({
+      const exported = await api.exportVideo({
         inputs,
         duration: project.duration,
         width: res.width,
@@ -66,8 +67,10 @@ export function ExportDialog() {
         audioBitrate,
         format,
       })
-      // A null path means the save dialog was dismissed, which is not a failure.
-      if (outputPath) {
+      if (!exported.ok) {
+        // Dismissing the save dialog is a choice, not a failure.
+        if (exported.error.code !== 'E_CANCELLED') setError(exported.error.message)
+      } else {
         setExportProgress(100)
         setDone(true)
       }

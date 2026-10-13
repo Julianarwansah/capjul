@@ -21,7 +21,8 @@ export function AudioPanel() {
   const [activeTab, setActiveTab] = useState<'music' | 'effects' | 'voiceover'>('music')
 
   async function importAudio() {
-    const paths = await window.electronAPI?.openMedia() ?? []
+    const opened = await window.electronAPI?.openMedia()
+    const paths = opened?.ok ? opened.value : []
     for (const p of paths) {
       const ext = p.split('.').pop()?.toLowerCase() ?? ''
       if (!['mp3', 'wav', 'aac', 'm4a', 'flac'].includes(ext)) continue
