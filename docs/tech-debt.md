@@ -39,12 +39,6 @@ Impact: user trust — the UI promises functions it does not have.
 Effort: 0.5-1 day per real feature; but first a keep/cut decision per button.
 Owner: **Julian** for keep/cut; engineering for the kept ones.
 
-### D6 — Three files exceed the 300-line split threshold
-`Timeline/index.tsx` 478, `PreviewPanel.tsx` 387, `editorStore.ts` 315.
-Impact: developer velocity — mixed responsibilities, painful diffs.
-Effort: 0.5-1 day each; Timeline first (clip items extract cleanly).
-Owner: next engineering slot, paired with whichever feature touches them.
-
 ### D7 — Preview/export parity gaps beyond font size
 Text `shadow*`, `strokeWidth`, `letterSpacing` are emitted in px, so they do not scale
 with the canvas; clip color filters are a CSS filter string with no export equivalent.
@@ -102,3 +96,6 @@ Kept here for traceability; each has a commit.
   verified by planting an implicit-any probe and watching tsc reject it (was D3).
 - `removeMedia` now cascades to the clips and audio clips referencing it, as one undo
   step (was D8).
+- The three over-long files are split: Timeline clip items and track labels live in
+  `Timeline/ClipItems.tsx`, transport controls in `PreviewControls.tsx`, store defaults
+  in `store/defaults.ts`. Every file is now under 300 lines (was D6).
