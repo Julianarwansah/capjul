@@ -1,6 +1,8 @@
 # Export pipeline design
 
-Status: proposal, informed by two throwaway prototypes (`scratch/export-proto/`, gitignored).
+Status: Phase 1 milestone 1 implemented (`src/shared/render-plan.ts`, wired through
+`media:export`); text/sticker overlays and the parity harness remain. Findings below
+come from two throwaway prototypes (`docs/prototypes/export-pipeline/`).
 Scope: replacing `buildFFmpegArgs` in `electron/main.ts` with a real timeline compositor.
 
 ## 1. Problem statement
@@ -106,12 +108,12 @@ values the preview uses. Sends PNG bytes to main over IPC. Per F4, sticker clips
 out of scope until they become image assets; an image-asset sticker is simply another
 rasterized-or-copied PNG.
 
-**Encoder** (main process, in a `utilityProcess`). Builds the filtergraph from the
-RenderPlan, spawns FFmpeg with an argument array (never a shell), streams stderr for
-progress, and reports completion. Running it in a utility process means a hung or
-crashing FFmpeg cannot take the app down, and a failed export leaves the UI responsive.
-This also resolves the earlier finding that all FFmpeg work currently runs in the main
-process.
+**Encoder** (main process). Builds the filtergraph from the RenderPlan, spawns FFmpeg
+with an argument array (never a shell), and streams stderr for progress. FFmpeg already
+runs as a child process, so a hung or crashing encode cannot take the app down and the
+UI stays responsive; a separate `utilityProcess` is deferred to Phase 2, where it becomes
+necessary because frame pumping moves into our own JS. This corrects an earlier draft of
+this document that placed the Phase 1 encoder in a utility process.
 
 **FFmpeg resolution.** Keep using a system FFmpeg for video/audio (F1 proves that part
 needs no exotic filters), but detect it at startup and fail with an actionable message
