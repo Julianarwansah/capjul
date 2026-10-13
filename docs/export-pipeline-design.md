@@ -129,13 +129,18 @@ handling, and re-implementing the compositor once in canvas. Note F4 still appli
 emoji stickers will not draw on canvas in Phase 2 either, which is another reason to
 settle the sticker question in Phase 1.
 
-### Sticker decision required
+### Sticker decision (resolved: image assets)
 
-Recommended: convert stickers from emoji strings to bundled image assets (PNG/SVG in
-`public/stickers/`), keeping the emoji as a fallback label in the UI. This makes
-stickers exportable in both phases and removes the canvas emoji limitation entirely.
-Alternative: document stickers as preview-only. Either way it is a product decision and
-should be made before Phase 1 ships.
+Stickers move from emoji strings to bundled image assets, keeping the emoji as a
+fallback label in the UI. This makes stickers exportable in both phases and removes the
+canvas emoji limitation (F4) from the architecture entirely.
+
+One prerequisite is still open and must be settled before Phase 1 implements it:
+**which asset set, under which licence**. Candidates are a CC-BY set (Twemoji), an
+OFL/Apache set (Noto Emoji), or self-authored assets. Attribution obligations differ and
+this is a product/legal choice, not an engineering one. Until it is settled, emoji
+stickers remain preview-only and the export pipeline skips sticker layers with a
+visible warning rather than silently dropping them.
 
 ## 4. RenderPlan schema
 
@@ -212,7 +217,8 @@ parity harness + stickers.
 
 ## 8. Open questions
 
-1. Stickers: image assets or preview-only? (blocks Phase 1 completeness)
+1. ~~Stickers: image assets or preview-only?~~ Resolved: image assets. The asset set
+   and its licence are still undecided and gate the implementation, not the decision.
 2. Do we bundle FFmpeg to guarantee a known-capable binary, or keep system FFmpeg with
    capability detection? Phase 1 assumes the latter.
 3. Transitions: `xfade` is available in the tested build, but cross-track transitions
