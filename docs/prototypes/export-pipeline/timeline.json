@@ -1,0 +1,84 @@
+{
+  "width": 1280,
+  "height": 720,
+  "fps": 30,
+  "backgroundColor": "#000000",
+  "duration": 8,
+  "media": {
+    "vA": "media/videoA.mp4",
+    "vB": "media/videoB.mp4",
+    "mMusic": "media/music.wav"
+  },
+  "clips": [
+    {
+      "id": "clipA",
+      "mediaId": "vA",
+      "trackId": "video-main",
+      "z": 0,
+      "startTime": 0,
+      "duration": 3,
+      "mediaStart": 1,
+      "mediaEnd": 4,
+      "speed": 1,
+      "volume": 1,
+      "opacity": 1,
+      "x": 0,
+      "y": 0,
+      "scaleX": 1,
+      "scaleY": 1
+    },
+    {
+      "id": "clipB",
+      "mediaId": "vB",
+      "trackId": "video-main",
+      "z": 0,
+      "startTime": 4,
+      "duration": 2,
+      "mediaStart": 0,
+      "mediaEnd": 3,
+      "speed": 1.5,
+      "volume": 1,
+      "opacity": 1,
+      "x": 0,
+      "y": 0,
+      "scaleX": 1,
+      "scaleY": 1
+    },
+    {
+      "id": "clipPip",
+      "mediaId": "vA",
+      "trackId": "video-pip",
+      "z": 1,
+      "startTime": 2,
+      "duration": 3,
+      "mediaStart": 2,
+      "mediaEnd": 5,
+      "speed": 1,
+      "volume": 0,
+      "opacity": 1,
+      "x": 0.28,
+      "y": 0.28,
+      "scaleX": 0.3,
+      "scaleY": 0.3
+    }
+  ],
+  "audioClips": [
+    {
+      "id": "music",
+      "mediaId": "mMusic",
+      "trackId": "audio-main",
+      "startTime": 0,
+      "duration": 8,
+      "mediaStart": 0,
+      "volume": 0.35,
+      "fadein": 1,
+      "speed": 1
+    }
+  ],
+  "textClips": [],
+  "stickerClips": [],
+  "overlays": [
+    { "file": "media/text1.png", "startTime": 1, "duration": 4 },
+    { "file": "media/sticker1.png", "startTime": 2, "duration": 2 }
+  ]
+}
