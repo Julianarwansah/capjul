@@ -51,20 +51,32 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
   )
 }
 
-function Slider({ label, value, min, max, step = 1, onChange }: {
+// These adjustments are stored on the clip but rendered by neither the preview
+// nor the export; CSS has no equivalent of curves, white balance or unsharp.
+// They belong to the Phase 2 compositor (tech debt D7). A slider that changes
+// nothing visible is worse than no slider, so they are disabled and say so.
+const NOT_RENDERED_HINT = 'Not rendered yet — needs the Phase 2 compositor'
+
+function Slider({ label, value, min, max, step = 1, onChange, disabled, hint }: {
   label: string; value: number; min: number; max: number; step?: number
   onChange: (v: number) => void
+  disabled?: boolean
+  hint?: string
 }) {
   return (
-    <div className="mb-2">
+    <div className="mb-2" style={disabled ? { opacity: 0.45 } : undefined}>
       <div className="flex justify-between mb-1">
         <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{label}</span>
         <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{value}</span>
       </div>
       <input
         type="range" min={min} max={max} step={step} value={value}
+        disabled={disabled}
         onChange={e => onChange(+e.target.value)}
       />
+      {disabled && hint && (
+        <p className="mt-0.5" style={{ color: 'var(--color-text-muted)', fontSize: 9 }}>{hint}</p>
+      )}
     </div>
   )
 }
@@ -141,20 +153,26 @@ export function RightPanel() {
             <Slider label="Saturation" value={selectedClip.saturation} min={-100} max={100}
               onChange={v => updateClip(selectedClip.id, { saturation: v })} />
             <Slider label="Exposure" value={selectedClip.exposure} min={-100} max={100}
-              onChange={v => updateClip(selectedClip.id, { exposure: v })} />
+              onChange={v => updateClip(selectedClip.id, { exposure: v })}
+              disabled hint={NOT_RENDERED_HINT} />
             <Slider label="Highlights" value={selectedClip.highlights} min={-100} max={100}
-              onChange={v => updateClip(selectedClip.id, { highlights: v })} />
+              onChange={v => updateClip(selectedClip.id, { highlights: v })}
+              disabled hint={NOT_RENDERED_HINT} />
             <Slider label="Shadows" value={selectedClip.shadows} min={-100} max={100}
-              onChange={v => updateClip(selectedClip.id, { shadows: v })} />
+              onChange={v => updateClip(selectedClip.id, { shadows: v })}
+              disabled hint={NOT_RENDERED_HINT} />
           </Section>
 
           <Section title="HSL & Color">
             <Slider label="Temperature" value={selectedClip.temperature} min={-100} max={100}
-              onChange={v => updateClip(selectedClip.id, { temperature: v })} />
+              onChange={v => updateClip(selectedClip.id, { temperature: v })}
+              disabled hint={NOT_RENDERED_HINT} />
             <Slider label="Tint" value={selectedClip.tint} min={-100} max={100}
-              onChange={v => updateClip(selectedClip.id, { tint: v })} />
+              onChange={v => updateClip(selectedClip.id, { tint: v })}
+              disabled hint={NOT_RENDERED_HINT} />
             <Slider label="Sharpness" value={selectedClip.sharpness} min={0} max={100}
-              onChange={v => updateClip(selectedClip.id, { sharpness: v })} />
+              onChange={v => updateClip(selectedClip.id, { sharpness: v })}
+              disabled hint={NOT_RENDERED_HINT} />
           </Section>
 
           <Section title="Playback" defaultOpen={false}>
