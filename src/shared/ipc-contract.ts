@@ -1,8 +1,8 @@
-import type { ExportRequest } from './export-request'
 import type { FfprobeResult } from './ffprobe'
 import type { Project } from './project-schema'
+import type { RenderPlan } from './render-plan'
 
-export type { ExportRequest } from './export-request'
+export type { RenderPlan } from './render-plan'
 
 // This module must stay free of runtime dependencies: the preload imports it,
 // and anything imported here at value level is bundled into the preload.
@@ -60,6 +60,6 @@ export interface ElectronApi {
   recoveryInfo: () => Promise<IpcResult<RecoveryInfo | null>>
   restoreAutosave: () => Promise<IpcResult<Project>>
   probeMedia: (path: string) => Promise<IpcResult<FfprobeResult>>
-  exportVideo: (request: ExportRequest) => Promise<IpcResult<string>>
+  exportVideo: (plan: RenderPlan) => Promise<IpcResult<string>>
   onExportProgress: (cb: (percent: number) => void) => () => void
 }

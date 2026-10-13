@@ -2,6 +2,7 @@ import { useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X, Download, CheckCircle } from 'lucide-react'
 import { useEditorStore } from '../store/editorStore'
+import { compileProject } from '../shared/render-plan'
 
 const RESOLUTIONS = [
   { label: '4K', width: 3840, height: 2160, bitrate: '20M' },
@@ -39,13 +40,8 @@ export function ExportDialog() {
       return
     }
 
-    const inputs = project.clips.map(c => {
-      const media = project.media.find(m => m.id === c.mediaId)
-      return { path: media?.path ?? '', start: c.mediaStart, end: c.mediaEnd }
-    }).filter(i => i.path)
-
-    if (inputs.length === 0) {
-      setError('Nothing to export. Add a video clip to the timeline first.')
+    if (project.clips.length === 0 && project.audioClips.length === 0) {
+      setError('Nothing to export. Add a clip to the timeline first.')
       return
     }
 
@@ -57,16 +53,12 @@ export function ExportDialog() {
     const cleanup = api.onExportProgress(setExportProgress)
 
     try {
-      const exported = await api.exportVideo({
-        inputs,
-        duration: project.duration,
-        width: res.width,
-        height: res.height,
-        fps,
-        videoBitrate: res.bitrate,
-        audioBitrate,
-        format,
-      })
+      const plan = compileProject(project, { format, videoBitrate: res.bitrate, audioBitrate })
+      // The dialog's resolution/fps choices override the project's own.
+      plan.width = res.width
+      plan.height = res.height
+      plan.fps = fps
+      const exported = await api.exportVideo(plan)
       if (!exported.ok) {
         // Dismissing the save dialog is a choice, not a failure.
         if (exported.error.code !== 'E_CANCELLED') setError(exported.error.message)

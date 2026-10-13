@@ -6,9 +6,10 @@ import { spawn, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import {
   IPC, fail, ok,
-  type ExportRequest, type IpcResult, type RecoveryInfo,
+  type IpcResult, type RecoveryInfo, type RenderPlan,
 } from '../src/shared/ipc-contract'
-import { ExportRequestSchema } from '../src/shared/export-request'
+import { RenderPlanSchema } from '../src/shared/render-plan-schema'
+import { buildRenderArgs } from '../src/shared/render-plan'
 import { FfprobeResultSchema, type FfprobeResult } from '../src/shared/ffprobe'
 import type { Project } from '../src/shared/project-schema'
 import { getLastSavedPath, mapFsError, readProjectFile, recoveryInfo, restoreAutosave, writeAutosave, writeProjectFile } from './project-store'
@@ -165,14 +166,37 @@ ipcMain.handle(IPC.mediaProbe, async (_, filePath: string): Promise<IpcResult<Ff
   }
 })
 
-// IPC: export video with FFmpeg
-ipcMain.handle(IPC.mediaExport, async (_, request: ExportRequest): Promise<IpcResult<string>> => {
-  const validated = ExportRequestSchema.safeParse(request)
+// ffprobe just enough to know whether a file carries an audio stream. A clip
+// from an audio-less file must not be wired into the mix, or the filtergraph
+// references a stream that does not exist and the whole encode fails.
+async function probeHasAudio(filePath: string): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync('ffprobe', [
+      '-v', 'quiet',
+      '-select_streams', 'a',
+      '-show_entries', 'stream=index',
+      '-print_format', 'json',
+      filePath,
+    ], { encoding: 'utf-8' })
+    const parsed = JSON.parse(stdout) as { streams?: unknown[] }
+    return Array.isArray(parsed.streams) && parsed.streams.length > 0
+  } catch {
+    return false
+  }
+}
+
+// IPC: export video with FFmpeg from a compiled RenderPlan.
+ipcMain.handle(IPC.mediaExport, async (_, plan: RenderPlan): Promise<IpcResult<string>> => {
+  const validated = RenderPlanSchema.safeParse(plan)
   if (!validated.success) {
     const issue = validated.error.issues[0]
-    return fail('E_VALIDATION', `export request invalid at "${issue.path.join('.')}"`)
+    return fail('E_VALIDATION', `render plan invalid at "${issue.path.join('.')}"`)
   }
-  const options = validated.data
+  const render = validated.data as RenderPlan
+
+  for (const input of render.inputs) {
+    input.hasAudio = await probeHasAudio(input.path)
+  }
 
   const result = await dialog.showSaveDialog(mainWindow!, {
     filters: [
@@ -180,20 +204,20 @@ ipcMain.handle(IPC.mediaExport, async (_, request: ExportRequest): Promise<IpcRe
       { name: 'MOV Video', extensions: ['mov'] },
       { name: 'WebM Video', extensions: ['webm'] },
     ],
-    defaultPath: `export_${Date.now()}.${options.format}`,
+    defaultPath: `export_${Date.now()}.${render.output.format}`,
   })
   if (result.canceled || !result.filePath) return fail('E_CANCELLED', 'export cancelled')
   const outputPath = result.filePath
 
   return new Promise<IpcResult<string>>((resolve) => {
-    const proc = spawn('ffmpeg', buildFFmpegArgs(options, outputPath))
+    const proc = spawn('ffmpeg', buildRenderArgs(render, outputPath))
 
     proc.stderr.on('data', (data: Buffer) => {
       const timeMatch = data.toString().match(/time=(\d+):(\d+):(\d+\.\d+)/)
       if (!timeMatch) return
       const secs = +timeMatch[1] * 3600 + +timeMatch[2] * 60 + +timeMatch[3]
-      const percent = options.duration > 0
-        ? Math.min(99, Math.round((secs / options.duration) * 100))
+      const percent = render.duration > 0
+        ? Math.min(99, Math.round((secs / render.duration) * 100))
         : 0
       mainWindow?.webContents.send(IPC.exportProgress, percent)
     })
@@ -213,24 +237,3 @@ ipcMain.handle(IPC.mediaExport, async (_, request: ExportRequest): Promise<IpcRe
     })
   })
 })
-
-function buildFFmpegArgs(options: ExportRequest, output: string): string[] {
-  const args: string[] = ['-y']
-  for (const input of options.inputs) {
-    args.push('-ss', String(input.start), '-to', String(input.end), '-i', input.path)
-  }
-  if (options.inputs.length > 1) {
-    const filterInputs = options.inputs.map((_, i) => `[${i}:v][${i}:a]`).join('')
-    args.push('-filter_complex', `${filterInputs}concat=n=${options.inputs.length}:v=1:a=1[outv][outa]`)
-    args.push('-map', '[outv]', '-map', '[outa]')
-  }
-  args.push(
-    '-vf', `scale=${options.width}:${options.height}:force_original_aspect_ratio=decrease,pad=${options.width}:${options.height}:(ow-iw)/2:(oh-ih)/2`,
-    '-r', String(options.fps),
-    '-b:v', options.videoBitrate,
-    '-b:a', options.audioBitrate,
-    '-movflags', '+faststart',
-    output,
-  )
-  return args
-}
