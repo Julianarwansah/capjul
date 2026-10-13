@@ -23,6 +23,7 @@ export function ExportDialog() {
   const [format, setFormat] = useState('mp4')
   const [audioBitrate, setAudioBitrate] = useState('192k')
   const [done, setDone] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const res = RESOLUTIONS.find(r => r.label === resolution)!
 
@@ -31,22 +32,31 @@ export function ExportDialog() {
   }
 
   async function handleExport() {
-    setIsExporting(true)
-    setExportProgress(0)
-    setDone(false)
+    const api = window.electronAPI
+    if (!api) {
+      setError('Export needs the desktop app — the Electron bridge is unavailable.')
+      return
+    }
 
-    const cleanup = window.electronAPI?.onExportProgress(p => {
-      setExportProgress(p)
-      if (p >= 100) { setDone(true); setIsExporting(false); cleanup?.() }
-    })
+    const inputs = project.clips.map(c => {
+      const media = project.media.find(m => m.id === c.mediaId)
+      return { path: media?.path ?? '', start: c.mediaStart, end: c.mediaEnd }
+    }).filter(i => i.path)
+
+    if (inputs.length === 0) {
+      setError('Nothing to export. Add a video clip to the timeline first.')
+      return
+    }
+
+    setError(null)
+    setDone(false)
+    setExportProgress(0)
+    setIsExporting(true)
+
+    const cleanup = api.onExportProgress(setExportProgress)
 
     try {
-      const inputs = project.clips.map(c => {
-        const media = project.media.find(m => m.id === c.mediaId)
-        return { path: media?.path ?? '', start: c.mediaStart, end: c.mediaEnd }
-      }).filter(i => i.path)
-
-      await window.electronAPI?.exportVideo({
+      const outputPath = await api.exportVideo({
         inputs,
         duration: project.duration,
         width: res.width,
@@ -56,8 +66,16 @@ export function ExportDialog() {
         audioBitrate,
         format,
       })
-    } catch {
+      // A null path means the save dialog was dismissed, which is not a failure.
+      if (outputPath) {
+        setExportProgress(100)
+        setDone(true)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Export failed.')
+    } finally {
       setIsExporting(false)
+      cleanup?.()
     }
   }
 
@@ -214,6 +232,17 @@ export function ExportDialog() {
                     {done && <CheckCircle size={14} style={{ color: '#4ade80' }} />}
                   </div>
                 </div>
+              )}
+
+              {/* Error */}
+              {error && (
+                <p
+                  role="alert"
+                  className="text-xs p-3 rounded"
+                  style={{ background: 'rgba(255,71,87,0.12)', color: 'var(--color-primary)' }}
+                >
+                  {error}
+                </p>
               )}
             </div>
 
