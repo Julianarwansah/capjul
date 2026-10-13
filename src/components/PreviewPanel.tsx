@@ -6,9 +6,9 @@ import { STICKER_BASE_RATIO } from '../shared/sticker-assets'
 import { stickerDataUrl } from '../shared/sticker-svgs'
 import { buildCssFilter, colorAdjustFactors } from '../shared/color-adjust'
 import { buildEffectsCssFilter } from '../shared/effects'
-import { clipAnimCss } from '../shared/text-animation'
+import { clipAnim } from '../shared/text-animation'
 import { interpolate } from '../shared/keyframe-interpolate'
-import { textTransformAt, transformAt } from '../shared/scene'
+import { stickerTransformAt, textTransformAt, transformAt } from '../shared/scene'
 
 export function PreviewPanel() {
   const {
@@ -535,9 +535,12 @@ export function PreviewPanel() {
           {activeTextClips.map(t => {
             const elapsed = currentTime - t.startTime
             const remaining = t.startTime + t.duration - currentTime
-            const anim = clipAnimCss(t.animation, t.outAnimation, elapsed, remaining)
+            const anim = clipAnim(t.animation, t.outAnimation, elapsed, remaining)
             const tf = textTransformAt(t, currentTime)
             const baseTransform = `translate(-50%, -50%) rotate(${tf.rotation}deg) scale(${tf.scaleX}, ${tf.scaleY})`
+            const animTransform = anim.dx !== 0 || anim.dy !== 0 || anim.scale !== 1
+              ? `translate(${anim.dx * 100}cqh, ${anim.dy * 100}cqh) scale(${anim.scale})`
+              : ''
             return (
               <div
                 key={t.id}
@@ -545,8 +548,8 @@ export function PreviewPanel() {
                 style={{
                   left: `${tf.x * 100}%`,
                   top: `${tf.y * 100}%`,
-                  transform: anim.extraTransform
-                    ? `${baseTransform} ${anim.extraTransform}`
+                  transform: animTransform
+                    ? `${baseTransform} ${animTransform}`
                     : baseTransform,
                   opacity: anim.opacity,
                   fontFamily: t.fontFamily,
@@ -581,6 +584,7 @@ export function PreviewPanel() {
           {activeStickerClips.map(s => {
             const url = stickerDataUrl(s.src)
             if (!url) return null
+            const st = stickerTransformAt(s, currentTime)
             return (
               <img
                 key={s.id}
@@ -588,11 +592,11 @@ export function PreviewPanel() {
                 alt=""
                 className="absolute"
                 style={{
-                  left: `${s.x * 100}%`,
-                  top: `${s.y * 100}%`,
-                  width: `${STICKER_BASE_RATIO * 100 * s.scaleX}cqh`,
-                  transform: `translate(-50%, -50%) rotate(${s.rotation}deg)`,
-                  opacity: s.opacity,
+                  left: `${st.x * 100}%`,
+                  top: `${st.y * 100}%`,
+                  width: `${STICKER_BASE_RATIO * 100 * st.scaleX}cqh`,
+                  transform: `translate(-50%, -50%) rotate(${st.rotation}deg)`,
+                  opacity: st.opacity,
                   cursor: 'move',
                 }}
                 onMouseDown={e => {

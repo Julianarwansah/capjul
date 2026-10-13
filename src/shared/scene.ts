@@ -155,6 +155,16 @@ export function textTransformAt(clip: TextClip, t: number): SceneTransform {
   }, t)
 }
 
+/** Pose of a sticker at timeline time t. Same absolute-fraction convention as
+ *  text: x/y place the asset's centre on the canvas. */
+export function stickerTransformAt(clip: StickerClip, t: number): SceneTransform {
+  return transformAt(clip.keyframes ?? [], {
+    x: clip.x, y: clip.y,
+    scaleX: clip.scaleX, scaleY: clip.scaleY,
+    rotation: clip.rotation, opacity: clip.opacity,
+  }, t)
+}
+
 export function isActiveAt(layer: SceneLayer, t: number): boolean {
   return t >= layer.start && t < layer.end
 }

@@ -22,6 +22,7 @@ export function StickerPanel() {
       src: id,
       x: 0.5, y: 0.5,
       scaleX: 1, scaleY: 1, rotation: 0, opacity: 1,
+      keyframes: [],
     })
   }
 

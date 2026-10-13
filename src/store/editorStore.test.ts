@@ -58,6 +58,7 @@ function makeSticker(over: Partial<StickerClip> = {}): StickerClip {
   return {
     id: crypto.randomUUID(), trackId: 'sticker-1', startTime: 0, duration: 5,
     src: 'star.png', x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, opacity: 1,
+    keyframes: [],
     ...over,
   }
 }

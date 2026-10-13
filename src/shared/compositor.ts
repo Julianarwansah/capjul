@@ -1,9 +1,10 @@
 // Renderer-only: draws with DOM canvas and HTMLMediaElement. Never import from
 // the main process. This is the Phase 2 compositor: the single place that knows
 // how a Scene becomes pixels, so preview and export cannot drift.
-import { isActiveAt, mediaTimeAt, textTransformAt, transformAt, type Scene, type SceneImageLayer, type SceneLayer, type SceneStickerLayer, type SceneTextLayer, type SceneVideoLayer } from './scene'
+import { isActiveAt, mediaTimeAt, stickerTransformAt, textTransformAt, transformAt, type Scene, type SceneImageLayer, type SceneLayer, type SceneStickerLayer, type SceneTextLayer, type SceneVideoLayer } from './scene'
 import { rasterizeTextCentred, stickerPlacement, loadSvgImage } from './text-rasterizer'
 import { stickerSvg } from './sticker-svgs'
+import { clipAnim } from './text-animation'
 import type { MediaFile } from './project-schema'
 
 export interface PreparedScene {
@@ -134,12 +135,16 @@ export async function prepareScene(
     ctx.restore()
   }
 
-  function drawSticker(ctx: CanvasRenderingContext2D, layer: SceneStickerLayer) {
+  function drawSticker(ctx: CanvasRenderingContext2D, layer: SceneStickerLayer, t: number) {
     const img = stickers.get(layer.clip.src)
     if (!img) return
-    const p = stickerPlacement(layer.clip, scene.width, scene.height)
+    const tr = stickerTransformAt(layer.clip, t)
+    const p = stickerPlacement(
+      { ...layer.clip, x: tr.x, y: tr.y, scaleX: tr.scaleX, scaleY: tr.scaleY, rotation: tr.rotation },
+      scene.width, scene.height,
+    )
     ctx.save()
-    ctx.globalAlpha = layer.clip.opacity
+    ctx.globalAlpha = tr.opacity
     ctx.translate(p.cx, p.cy)
     ctx.rotate(p.rotationDeg * Math.PI / 180)
     ctx.drawImage(img, -p.w / 2, -p.h / 2, p.w, p.h)
@@ -150,15 +155,21 @@ export async function prepareScene(
     const raster = textCanvases.get(layer.clip.id)
     if (!raster) return
     const tr = textTransformAt(layer.clip, t)
+    const anim = clipAnim(layer.clip.animation, layer.clip.outAnimation, t - layer.start, layer.end - t)
     const { width: W, height: H } = scene
     ctx.save()
-    ctx.globalAlpha = tr.opacity
+    ctx.globalAlpha = tr.opacity * anim.opacity
     // Preview: left/top place the box at x/y as canvas fractions, then
-    // translate(-50%,-50%) rotate() scale() about the box centre. The raster
+    // translate(-50%,-50%) rotate() scale() about the box centre, then the
+    // animation's own translate/scale in that same local frame. The raster
     // holds exactly that box centred, so half its size is the -50%,-50%.
     ctx.translate(tr.x * W, tr.y * H)
     ctx.rotate(tr.rotation * Math.PI / 180)
     ctx.scale(tr.scaleX, tr.scaleY)
+    if (anim.dx !== 0 || anim.dy !== 0 || anim.scale !== 1) {
+      ctx.translate(anim.dx * H, anim.dy * H)
+      ctx.scale(anim.scale, anim.scale)
+    }
     ctx.drawImage(raster, -raster.width / 2, -raster.height / 2)
     ctx.restore()
   }
@@ -174,7 +185,7 @@ export async function prepareScene(
       if (!isActiveAt(layer, t)) continue
       if (layer.kind === 'video' || layer.kind === 'image') drawMediaLayer(ctx, layer, t)
       else if (layer.kind === 'text') drawText(ctx, layer, t)
-      else drawSticker(ctx, layer)
+      else drawSticker(ctx, layer, t)
     }
     ctx.restore()
   }

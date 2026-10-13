@@ -61,13 +61,18 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
 // nothing visible is worse than no slider, so they are disabled and say so.
 const NOT_RENDERED_HINT = 'Not rendered yet — needs the Phase 2 compositor'
 
-function KfBtn({ active, onClick }: { active: boolean; onClick: () => void }) {
+function KfBtn({ active, onClick, disabled, disabledHint }: {
+  active: boolean
+  onClick: () => void
+  disabled?: boolean
+  disabledHint?: string
+}) {
   return (
     <button
-      onClick={onClick}
-      title={active ? 'Hapus keyframe' : 'Tambah keyframe di sini'}
+      onClick={disabled ? undefined : onClick}
+      title={disabled ? disabledHint : active ? 'Hapus keyframe' : 'Tambah keyframe di sini'}
       style={{
-        width: 14, height: 14, border: 'none', cursor: 'pointer', padding: 0,
+        width: 14, height: 14, border: 'none', cursor: disabled ? 'not-allowed' : 'pointer', padding: 0,
         background: 'transparent', flexShrink: 0,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}
@@ -76,7 +81,7 @@ function KfBtn({ active, onClick }: { active: boolean; onClick: () => void }) {
         width: 8, height: 8,
         transform: 'rotate(45deg)',
         background: active ? '#f59e0b' : 'transparent',
-        border: `1.5px solid ${active ? '#f59e0b' : '#555'}`,
+        border: `1.5px solid ${disabled ? '#3a3a3a' : active ? '#f59e0b' : '#555'}`,
         borderRadius: 1,
       }} />
     </button>
@@ -113,7 +118,7 @@ export function RightPanel() {
     selectedClipIds, selectedTextIds, selectedAudioIds, selectedStickerIds,
     updateClip, updateTextClip, updateAudioClip, updateStickerClip,
     addClipKeyframe, removeClipKeyframe, addTextKeyframe, removeTextKeyframe,
-    addAudioKeyframe, removeAudioKeyframe,
+    addAudioKeyframe, removeAudioKeyframe, addStickerKeyframe, removeStickerKeyframe,
   } = useEditorStore()
 
   const selectedClip = selectedClipIds[0]
@@ -250,7 +255,12 @@ export function RightPanel() {
                 <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>Speed</span>
                 <div className="flex items-center gap-1">
                   <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{selectedClip.speed}x</span>
-                  <KfBtn active={hasKeyframes(kfs, 'speed')} onClick={() => toggleKf('speed', selectedClip.speed)} />
+                  <KfBtn
+                    active={false}
+                    disabled
+                    disabledHint="Keyframe kecepatan belum didukung: speed ramp butuh integrasi kecepatan terhadap waktu"
+                    onClick={() => {}}
+                  />
                 </div>
               </div>
               <div className="flex gap-1 mb-2">
@@ -273,6 +283,9 @@ export function RightPanel() {
                 type="range" min={0.1} max={10} step={0.05} value={selectedClip.speed}
                 onChange={e => updateClip(selectedClip.id, { speed: +e.target.value })}
               />
+              <p className="mt-0.5" style={{ color: 'var(--color-text-muted)', fontSize: 9 }}>
+                Speed berubah instan; keyframe kecepatan belum didukung
+              </p>
             </div>
             <Slider label="Volume" value={Math.round(selectedClip.volume * 100)} min={0} max={200}
               onChange={v => updateClip(selectedClip.id, { volume: v / 100 })} />
@@ -514,22 +527,45 @@ export function RightPanel() {
       })()}
 
       {/* Sticker clip properties */}
-      {selectedSticker && (
+      {selectedSticker && (() => {
+        const kfs = selectedSticker.keyframes ?? []
+        const toggleKf = (prop: string, value: number) => {
+          const atTime = kfs.find(k => k.property === prop && Math.abs(k.time - currentTime) < 0.05)
+          if (atTime) removeStickerKeyframe(selectedSticker.id, atTime.id)
+          else addStickerKeyframe(selectedSticker.id, { id: crypto.randomUUID(), time: currentTime, property: prop, value })
+        }
+        return (
         <>
           <Section title="Transform">
-            <Slider label="Opacity" value={Math.round(selectedSticker.opacity * 100)} min={0} max={100}
-              onChange={v => updateStickerClip(selectedSticker.id, { opacity: v / 100 })} />
-            <Slider label="Scale" value={Math.round(selectedSticker.scaleX * 100)} min={10} max={400}
-              onChange={v => updateStickerClip(selectedSticker.id, { scaleX: v / 100, scaleY: v / 100 })} />
-            <Slider label="Rotation" value={selectedSticker.rotation} min={-180} max={180}
-              onChange={v => updateStickerClip(selectedSticker.id, { rotation: v })} />
-            <Slider label="Position X" value={Math.round(selectedSticker.x * 100)} min={-100} max={100}
-              onChange={v => updateStickerClip(selectedSticker.id, { x: v / 100 })} />
-            <Slider label="Position Y" value={Math.round(selectedSticker.y * 100)} min={-100} max={100}
-              onChange={v => updateStickerClip(selectedSticker.id, { y: v / 100 })} />
+            <div className="flex items-center gap-1 mb-2">
+              <div className="flex-1"><Slider label="Opacity" value={Math.round(selectedSticker.opacity * 100)} min={0} max={100}
+                onChange={v => updateStickerClip(selectedSticker.id, { opacity: v / 100 })} /></div>
+              <KfBtn active={hasKeyframes(kfs, 'opacity')} onClick={() => toggleKf('opacity', selectedSticker.opacity)} />
+            </div>
+            <div className="flex items-center gap-1 mb-2">
+              <div className="flex-1"><Slider label="Scale" value={Math.round(selectedSticker.scaleX * 100)} min={10} max={400}
+                onChange={v => updateStickerClip(selectedSticker.id, { scaleX: v / 100, scaleY: v / 100 })} /></div>
+              <KfBtn active={hasKeyframes(kfs, 'scaleX')} onClick={() => toggleKf('scaleX', selectedSticker.scaleX)} />
+            </div>
+            <div className="flex items-center gap-1 mb-2">
+              <div className="flex-1"><Slider label="Rotation" value={selectedSticker.rotation} min={-180} max={180}
+                onChange={v => updateStickerClip(selectedSticker.id, { rotation: v })} /></div>
+              <KfBtn active={hasKeyframes(kfs, 'rotation')} onClick={() => toggleKf('rotation', selectedSticker.rotation)} />
+            </div>
+            <div className="flex items-center gap-1 mb-2">
+              <div className="flex-1"><Slider label="Position X" value={Math.round(selectedSticker.x * 100)} min={-100} max={100}
+                onChange={v => updateStickerClip(selectedSticker.id, { x: v / 100 })} /></div>
+              <KfBtn active={hasKeyframes(kfs, 'x')} onClick={() => toggleKf('x', selectedSticker.x)} />
+            </div>
+            <div className="flex items-center gap-1 mb-2">
+              <div className="flex-1"><Slider label="Position Y" value={Math.round(selectedSticker.y * 100)} min={-100} max={100}
+                onChange={v => updateStickerClip(selectedSticker.id, { y: v / 100 })} /></div>
+              <KfBtn active={hasKeyframes(kfs, 'y')} onClick={() => toggleKf('y', selectedSticker.y)} />
+            </div>
           </Section>
         </>
-      )}
+        )
+      })()}
     </div>
   )
 }

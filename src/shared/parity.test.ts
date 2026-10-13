@@ -85,6 +85,7 @@ describe('sticker parity', () => {
   const clip: StickerClip = {
     id: 's', trackId: 'st', startTime: 0, duration: 3, src: 'star',
     x: 0.25, y: 0.75, scaleX: 2, scaleY: 2, rotation: 0, opacity: 1,
+    keyframes: [],
   }
 
   it('sizes and centres like the preview cqh width and translate(-50%,-50%)', () => {

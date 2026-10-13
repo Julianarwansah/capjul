@@ -107,6 +107,7 @@ export const StickerClipSchema = z.object({
   rotation: z.number(),
   opacity: z.number(),
   animation: z.string().optional(),
+  keyframes: z.array(KeyframeSchema).default([]),
 })
 
 export const AudioClipSchema = z.object({

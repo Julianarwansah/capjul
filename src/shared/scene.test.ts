@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compileScene, isActiveAt, mediaTimeAt, textTransformAt, transformAt } from './scene'
+import { compileScene, isActiveAt, mediaTimeAt, stickerTransformAt, textTransformAt, transformAt } from './scene'
 import type { Clip, Project, StickerClip, TextClip } from './project-schema'
 
 function clip(over: Partial<Clip> = {}): Clip {
@@ -48,6 +48,7 @@ const text = (over: Partial<TextClip> = {}): TextClip => ({
 const sticker = (over: Partial<StickerClip> = {}): StickerClip => ({
   id: 'st1', trackId: 'phantom-sticker', startTime: 2, duration: 2, src: 'star',
   x: 0.5, y: 0.5, scaleX: 1, scaleY: 1, rotation: 0, opacity: 1,
+  keyframes: [],
   ...over,
 })
 
@@ -160,5 +161,20 @@ describe('textTransformAt', () => {
     const tr = textTransformAt(text({ x: 0.4, rotation: 0, keyframes: kfs }), 1)
     expect(tr.rotation).toBeCloseTo(45)
     expect(tr.x).toBe(0.4)
+  })
+})
+
+describe('stickerTransformAt', () => {
+  it('reads the clip pose including opacity, which stickers do carry', () => {
+    const tr = stickerTransformAt(sticker({ x: 0.3, y: 0.4, scaleX: 2, scaleY: 2, rotation: 15, opacity: 0.5 }), 0)
+    expect(tr).toEqual({ x: 0.3, y: 0.4, scaleX: 2, scaleY: 2, rotation: 15, opacity: 0.5 })
+  })
+
+  it('interpolates a keyframed position', () => {
+    const kfs = [
+      { id: 'a', time: 2, property: 'x', value: 0 },
+      { id: 'b', time: 4, property: 'x', value: 1 },
+    ]
+    expect(stickerTransformAt(sticker({ keyframes: kfs }), 3).x).toBeCloseTo(0.5)
   })
 })

@@ -3,7 +3,7 @@
 // process. Nothing here reimplements the code under test.
 import { compileScene } from '../src/shared/scene'
 import { prepareScene } from '../src/shared/compositor'
-import type { Clip, Project, TextClip } from '../src/shared/project-schema'
+import type { Clip, Project, StickerClip, TextClip } from '../src/shared/project-schema'
 
 const W = 640
 const H = 360
@@ -36,6 +36,15 @@ function mkClip(over: Partial<Clip> = {}): Clip {
     temperature: 0, tint: 0, sharpness: 0,
     chromaEnabled: false, chromaColor: '#00ff00', chromaTolerance: 0.3,
     stabilize: false, effects: [], keyframes: [],
+    ...over,
+  }
+}
+
+function mkSticker(over: Partial<StickerClip> = {}): StickerClip {
+  return {
+    id: 'st', trackId: 't0', startTime: 0, duration: 3, src: 'star',
+    x: 0.5, y: 0.5, scaleX: 1, scaleY: 1, rotation: 0, opacity: 1,
+    keyframes: [],
     ...over,
   }
 }
@@ -123,6 +132,21 @@ async function main() {
   ]
   out.push(await render('vid-kf-t0', mkProject({ media: vidMedia, clips: [mkClip({ mediaId: 'vid', keyframes: vidKfs })] }), 0))
   out.push(await render('vid-kf-t2', mkProject({ media: vidMedia, clips: [mkClip({ mediaId: 'vid', keyframes: vidKfs })] }), 2))
+
+  // 9. Text in-animations must now reach the compositor, not just the preview.
+  out.push(await render('anim-fade-t0', mkProject({ textClips: [mkText({ animation: 'fade' })] }), 0))
+  out.push(await render('anim-fade-t0.2', mkProject({ textClips: [mkText({ animation: 'fade' })] }), 0.2))
+  out.push(await render('anim-slide-t0.15', mkProject({ textClips: [mkText({ animation: 'slideRight' })] }), 0.15))
+  out.push(await render('anim-slide-t0.4', mkProject({ textClips: [mkText({ animation: 'slideRight' })] }), 0.4))
+  out.push(await render('anim-zoom-t0.15', mkProject({ textClips: [mkText({ animation: 'zoomIn' })] }), 0.15))
+
+  // 10. Sticker keyframes must move the asset on the export path.
+  const stKfs = [
+    { id: 'a', time: 0, property: 'x', value: 0.2 },
+    { id: 'b', time: 2, property: 'x', value: 0.8 },
+  ]
+  out.push(await render('sticker-kf-t0', mkProject({ stickerClips: [mkSticker({ keyframes: stKfs })] }), 0))
+  out.push(await render('sticker-kf-t2', mkProject({ stickerClips: [mkSticker({ keyframes: stKfs })] }), 2))
 
   return out
 }

@@ -76,6 +76,8 @@ interface EditorState {
   removeTextKeyframe: (clipId: string, kfId: string) => void
   addAudioKeyframe: (clipId: string, kf: Keyframe) => void
   removeAudioKeyframe: (clipId: string, kfId: string) => void
+  addStickerKeyframe: (clipId: string, kf: Keyframe) => void
+  removeStickerKeyframe: (clipId: string, kfId: string) => void
 
   addCaption: (c: Caption) => void
   updateCaption: (id: string, changes: Partial<Caption>) => void
@@ -269,6 +271,18 @@ export const useEditorStore = create<EditorState>()(
     removeAudioKeyframe: (clipId, kfId) => get().mutate(p => ({
       ...p,
       audioClips: p.audioClips.map(c => c.id === clipId
+        ? { ...c, keyframes: (c.keyframes ?? []).filter(k => k.id !== kfId) }
+        : c),
+    })),
+    addStickerKeyframe: (clipId, kf) => get().mutate(p => ({
+      ...p,
+      stickerClips: p.stickerClips.map(c => c.id === clipId
+        ? { ...c, keyframes: [...(c.keyframes ?? []).filter(k => !(k.property === kf.property && Math.abs(k.time - kf.time) < 0.05)), kf] }
+        : c),
+    })),
+    removeStickerKeyframe: (clipId, kfId) => get().mutate(p => ({
+      ...p,
+      stickerClips: p.stickerClips.map(c => c.id === clipId
         ? { ...c, keyframes: (c.keyframes ?? []).filter(k => k.id !== kfId) }
         : c),
     })),

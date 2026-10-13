@@ -7,6 +7,7 @@ function clip(over: Partial<StickerClip> = {}): StickerClip {
   return {
     id: 's1', trackId: 'st', startTime: 0, duration: 3, src: 'star',
     x: 0.5, y: 0.5, scaleX: 1, scaleY: 1, rotation: 0, opacity: 1,
+    keyframes: [],
     ...over,
   }
 }
