@@ -2,6 +2,8 @@ import { useRef, useEffect, useState } from 'react'
 import { Play, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react'
 import { useEditorStore } from '../store/editorStore'
 import { PreviewControls } from './PreviewControls'
+import { STICKER_BASE_RATIO } from '../shared/sticker-assets'
+import { stickerDataUrl } from '../shared/sticker-svgs'
 
 export function PreviewPanel() {
   const {
@@ -176,19 +178,26 @@ export function PreviewPanel() {
           ))}
 
           {/* Sticker overlays */}
-          {activeStickerClips.map(s => (
-            <div
-              key={s.id}
-              className="absolute text-4xl"
-              style={{
-                left: `${s.x * 100}%`, top: `${s.y * 100}%`,
-                transform: `translate(-50%, -50%) rotate(${s.rotation}deg) scale(${s.scaleX}, ${s.scaleY})`,
-                opacity: s.opacity, cursor: 'move',
-              }}
-            >
-              {s.src}
-            </div>
-          ))}
+          {activeStickerClips.map(s => {
+            const url = stickerDataUrl(s.src)
+            if (!url) return null
+            return (
+              <img
+                key={s.id}
+                src={url}
+                alt=""
+                className="absolute"
+                style={{
+                  left: `${s.x * 100}%`,
+                  top: `${s.y * 100}%`,
+                  width: `${STICKER_BASE_RATIO * 100 * s.scaleX}cqh`,
+                  transform: `translate(-50%, -50%) rotate(${s.rotation}deg)`,
+                  opacity: s.opacity,
+                  cursor: 'move',
+                }}
+              />
+            )
+          })}
 
           {/* Safe zone overlay */}
           {showSafeZone && (

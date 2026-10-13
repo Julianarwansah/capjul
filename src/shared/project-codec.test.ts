@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseProjectFile, serializeProjectFile } from './project-codec'
+import { CURRENT_SCHEMA_VERSION } from './project-schema'
 import type { Project } from './project-schema'
 
 function makeProject(over: Partial<Project> = {}): Project {
@@ -41,7 +42,7 @@ describe('serialize', () => {
     const text = serializeProjectFile(makeProject(), '1.2.3')
     const envelope = JSON.parse(text)
     expect(envelope.app).toBe('capjul')
-    expect(envelope.schemaVersion).toBe(2)
+    expect(envelope.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
     expect(envelope.appVersion).toBe('1.2.3')
     expect(typeof envelope.savedAt).toBe('number')
     expect(envelope.project.name).toBe('Test')
@@ -118,6 +119,28 @@ describe('parse: rejection', () => {
   it('refuses oversized files before parsing', () => {
     const out = parseProjectFile('0'.repeat(51 * 1024 * 1024))
     expect(out).toMatchObject({ ok: false, code: 'E_TOO_LARGE' })
+  })
+})
+
+describe('parse: v2 -> v3 sticker migration', () => {
+  it('drops emoji sticker sources and keeps bundled asset ids', () => {
+    const sticker = (id: string, src: string) => ({
+      id, trackId: 't1', startTime: 0, duration: 3, src,
+      x: 0.5, y: 0.5, scaleX: 1, scaleY: 1, rotation: 0, opacity: 1,
+    })
+    const v2 = {
+      app: 'capjul', schemaVersion: 2, savedAt: 1, appVersion: '0.0.0',
+      project: {
+        ...makeProject(),
+        stickerClips: [sticker('s1', '⭐'), sticker('s2', 'star')],
+      },
+    }
+    const out = parseProjectFile(JSON.stringify(v2))
+    expect(out.ok).toBe(true)
+    if (out.ok) {
+      expect(out.migratedFrom).toBe(2)
+      expect(out.project.stickerClips.map(s => s.id)).toEqual(['s2'])
+    }
   })
 })
 

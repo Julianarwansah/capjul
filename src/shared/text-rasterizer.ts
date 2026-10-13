@@ -1,6 +1,8 @@
 // Renderer-only: draws with a DOM canvas. Never import from the main process.
 import { layoutText, textFont } from './text-layout'
-import type { TextClip } from './project-schema'
+import { STICKER_BASE_RATIO } from './sticker-assets'
+import { stickerSvg } from './sticker-svgs'
+import type { StickerClip, TextClip } from './project-schema'
 
 type LetterSpacingContext = CanvasRenderingContext2D & { letterSpacing?: string }
 
@@ -67,4 +69,59 @@ export function rasterizeTextClip(clip: TextClip, canvasW: number, canvasH: numb
   }
 
   return canvas.toDataURL('image/png').split(',')[1]
+}
+
+/**
+ * Sticker geometry: the asset's base height is a fixed fraction of the canvas,
+ * scaled by the clip and centred on (x, y) as canvas fractions - the same
+ * centre semantics the preview uses.
+ */
+export function stickerPlacement(clip: StickerClip, canvasW: number, canvasH: number) {
+  const base = canvasH * STICKER_BASE_RATIO
+  return {
+    w: base * clip.scaleX,
+    h: base * clip.scaleY,
+    cx: clip.x * canvasW,
+    cy: clip.y * canvasH,
+    rotationDeg: clip.rotation,
+  }
+}
+
+function loadSvgImage(svgText: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('sticker svg failed to decode'))
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgText)}`
+  })
+}
+
+export async function rasterizeStickerFromSvg(
+  clip: StickerClip,
+  canvasW: number,
+  canvasH: number,
+  svgText: string,
+): Promise<string> {
+  const img = await loadSvgImage(svgText)
+  const canvas = document.createElement('canvas')
+  canvas.width = canvasW
+  canvas.height = canvasH
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('2d canvas context unavailable')
+  const p = stickerPlacement(clip, canvasW, canvasH)
+  ctx.globalAlpha = clip.opacity
+  ctx.translate(p.cx, p.cy)
+  ctx.rotate(p.rotationDeg * Math.PI / 180)
+  ctx.drawImage(img, -p.w / 2, -p.h / 2, p.w, p.h)
+  return canvas.toDataURL('image/png').split(',')[1]
+}
+
+export async function rasterizeStickerClip(
+  clip: StickerClip,
+  canvasW: number,
+  canvasH: number,
+): Promise<string | null> {
+  const svg = stickerSvg(clip.src)
+  if (!svg) return null
+  return rasterizeStickerFromSvg(clip, canvasW, canvasH, svg)
 }

@@ -1,11 +1,12 @@
 # Export pipeline design
 
-Status: Phase 1 milestone 1 implemented (`src/shared/render-plan.ts`, wired through
-`media:export`), and the text half of milestone 2 as well: text clips are rasterized in
-the renderer (`src/shared/text-rasterizer.ts`, layout math in `src/shared/text-layout.ts`)
-and composited as transparent PNG overlays. Sticker overlays remain blocked on the asset
-decision (D2 / F4). Findings below come from two throwaway prototypes
-(`docs/prototypes/export-pipeline/`).
+Status: Phase 1 complete for everything except transitions and color filters.
+Milestone 1 (`src/shared/render-plan.ts` wired through `media:export`) plus milestone 2:
+text clips and stickers are rasterized in the renderer
+(`src/shared/text-rasterizer.ts`, layout math in `src/shared/text-layout.ts`) and
+composited as transparent PNG overlays. Stickers are original in-repo vector assets,
+which resolves F4 without a third-party licence. Findings below come from two throwaway
+prototypes (`docs/prototypes/export-pipeline/`).
 Scope: replacing `buildFFmpegArgs` in `electron/main.ts` with a real timeline compositor.
 
 ## 1. Problem statement
@@ -134,18 +135,18 @@ handling, and re-implementing the compositor once in canvas. Note F4 still appli
 emoji stickers will not draw on canvas in Phase 2 either, which is another reason to
 settle the sticker question in Phase 1.
 
-### Sticker decision (resolved: image assets)
+### Sticker decision (resolved: original vector assets, no third-party licence)
 
-Stickers move from emoji strings to bundled image assets, keeping the emoji as a
-fallback label in the UI. This makes stickers exportable in both phases and removes the
-canvas emoji limitation (F4) from the architecture entirely.
+The "free" constraint ruled out licensing a third-party emoji set, and F4 ruled out
+keeping emoji strings: canvas cannot rasterize color emoji fonts at all. The resolution
+is a set of twelve original SVG stickers authored in this repository
+(`src/assets/stickers/`), bundled as raw strings and drawn to canvas via data URLs.
+Zero cost, zero external licence obligations, and vectors rasterize cleanly where emoji
+paint zero pixels.
 
-One prerequisite is still open and must be settled before Phase 1 implements it:
-**which asset set, under which licence**. Candidates are a CC-BY set (Twemoji), an
-OFL/Apache set (Noto Emoji), or self-authored assets. Attribution obligations differ and
-this is a product/legal choice, not an engineering one. Until it is settled, emoji
-stickers remain preview-only and the export pipeline skips sticker layers with a
-visible warning rather than silently dropping them.
+`StickerClip.src` is now an asset id. Legacy files holding emoji strings are handled by
+the v2->v3 schema migration, which drops sticker clips whose source is not a known
+asset; a migration test pins that behavior.
 
 ## 4. RenderPlan schema
 

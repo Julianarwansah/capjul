@@ -1,34 +1,26 @@
 import { useState } from 'react'
 import { Search } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
-import type { StickerClip } from '../../types'
-
-const STICKER_CATEGORIES = [
-  { name: 'Trending', emoji: ['🔥', '💯', '✨', '💫', '⭐', '🌟', '💥', '🎉', '🥳', '❤️', '💕', '💖', '😍', '🤩', '😎', '🙌'] },
-  { name: 'Emojis', emoji: ['😀', '😂', '🥰', '😎', '🤔', '😤', '🥺', '😱', '🤯', '😴', '🤑', '🥳', '😇', '🤪', '😋', '🤭'] },
-  { name: 'Arrows', emoji: ['➡️', '⬅️', '⬆️', '⬇️', '↩️', '↪️', '🔄', '🔃', '↕️', '↔️', '↗️', '↘️', '↙️', '↖️', '🔁', '🔂'] },
-  { name: 'Shapes', emoji: ['⭕', '❌', '🔴', '🔵', '🟢', '🟡', '🟠', '🟣', '⬛', '⬜', '🔶', '🔷', '🔸', '🔹', '🔺', '🔻'] },
-  { name: 'Nature', emoji: ['🌸', '🌺', '🌻', '🌹', '🌷', '🍀', '🌿', '🍃', '🌱', '🌲', '🌳', '🌴', '🌵', '🎋', '🎍', '🍁'] },
-  { name: 'Food', emoji: ['🍕', '🍔', '🍟', '🌮', '🌯', '🍜', '🍣', '🍱', '🍦', '🎂', '🍰', '☕', '🧋', '🍵', '🥤', '🧃'] },
-]
+import { STICKER_ASSETS } from '../../shared/sticker-assets'
+import { stickerDataUrl } from '../../shared/sticker-svgs'
 
 export function StickerPanel() {
-  const [activeCategory, setActiveCategory] = useState('Trending')
   const [search, setSearch] = useState('')
   const { addStickerClip, currentTime, project } = useEditorStore()
 
-  const current = STICKER_CATEGORIES.find(c => c.name === activeCategory)!
+  const assets = STICKER_ASSETS.filter(a => a.label.toLowerCase().includes(search.toLowerCase()))
 
-  function addSticker(emoji: string) {
+  function addSticker(id: string) {
     const track = project.tracks.find(t => t.type === 'sticker') ?? { id: 'sticker-default' }
-    const clip: StickerClip = {
-      id: crypto.randomUUID(), trackId: track.id,
-      startTime: currentTime, duration: 3,
-      src: emoji, x: 0.5, y: 0.5,
+    addStickerClip({
+      id: crypto.randomUUID(),
+      trackId: track.id,
+      startTime: currentTime,
+      duration: 3,
+      src: id,
+      x: 0.5, y: 0.5,
       scaleX: 1, scaleY: 1, rotation: 0, opacity: 1,
-      animation: 'bounce',
-    }
-    addStickerClip(clip)
+    })
   }
 
   return (
@@ -47,43 +39,33 @@ export function StickerPanel() {
         </div>
       </div>
 
-      {/* Category tabs */}
-      <div className="flex overflow-x-auto shrink-0 p-2 gap-1" style={{ borderBottom: '1px solid var(--color-border)' }}>
-        {STICKER_CATEGORIES.map(cat => (
-          <button
-            key={cat.name}
-            onClick={() => setActiveCategory(cat.name)}
-            className="text-xs px-2 py-1 rounded whitespace-nowrap"
-            style={{
-              background: activeCategory === cat.name ? 'var(--color-primary)' : 'var(--color-bg-surface)',
-              color: activeCategory === cat.name ? 'white' : 'var(--color-text-secondary)',
-              border: 'none', cursor: 'pointer', flexShrink: 0,
-            }}
-          >
-            {cat.name}
-          </button>
-        ))}
-      </div>
-
       {/* Sticker grid */}
       <div className="flex-1 overflow-y-auto p-2">
-        <div className="grid grid-cols-4 gap-2">
-          {current.emoji.map((e, i) => (
-            <button
-              key={i}
-              onClick={() => addSticker(e)}
-              className="flex items-center justify-center rounded cursor-pointer text-3xl"
-              style={{
-                height: 56, background: 'var(--color-bg-surface)', border: 'none',
-                transition: 'transform 0.1s',
-              }}
-              onMouseEnter={ev => (ev.currentTarget as HTMLElement).style.transform = 'scale(1.15)'}
-              onMouseLeave={ev => (ev.currentTarget as HTMLElement).style.transform = 'scale(1)'}
-            >
-              {e}
-            </button>
-          ))}
-        </div>
+        {assets.length === 0 ? (
+          <p className="text-xs p-3" style={{ color: 'var(--color-text-muted)' }}>No stickers match.</p>
+        ) : (
+          <div className="grid grid-cols-3 gap-2">
+            {assets.map(a => (
+              <button
+                key={a.id}
+                onClick={() => addSticker(a.id)}
+                title={a.label}
+                className="flex flex-col items-center justify-center gap-1 rounded cursor-pointer"
+                style={{
+                  height: 72, background: 'var(--color-bg-surface)', border: 'none',
+                  transition: 'transform 0.1s',
+                }}
+                onMouseEnter={ev => (ev.currentTarget as HTMLElement).style.transform = 'scale(1.08)'}
+                onMouseLeave={ev => (ev.currentTarget as HTMLElement).style.transform = 'scale(1)'}
+              >
+                <img src={stickerDataUrl(a.id) ?? ''} alt="" style={{ width: 36, height: 36 }} />
+                <span className="text-xs truncate px-1" style={{ color: 'var(--color-text-muted)', fontSize: 9 }}>
+                  {a.label}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

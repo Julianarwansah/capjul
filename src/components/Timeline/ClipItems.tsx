@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { Lock, Unlock, Volume2, VolumeX } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { TRACK_COLORS } from './track-colors'
+import { stickerLabel } from '../../shared/sticker-assets'
 import type { Clip, TextClip, AudioClip, StickerClip, Track, MediaFile } from '../../types'
 
 export function TrackLabel({ track }: { track: Track }) {
@@ -178,8 +179,9 @@ export function StickerClipItem({ clip, pxPerSec }: { clip: StickerClip; pxPerSe
       }}
     >
       <div className="absolute inset-0 flex items-center px-2 gap-1">
-        <span>{clip.src}</span>
-        <span className="text-xs" style={{ color: '#a78bfa', fontSize: 10 }}>Sticker</span>
+        <span className="text-xs truncate" style={{ color: '#a78bfa', fontSize: 10 }}>
+          {stickerLabel(clip.src)}
+        </span>
       </div>
     </div>
   )

@@ -160,7 +160,7 @@ export const ProjectSchema = z.object({
   captions: z.array(CaptionSchema),
 })
 
-export const CURRENT_SCHEMA_VERSION = 2
+export const CURRENT_SCHEMA_VERSION = 3
 
 export const ProjectFileSchema = z.object({
   app: z.literal('capjul'),

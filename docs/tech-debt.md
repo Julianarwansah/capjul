@@ -10,25 +10,6 @@ velocity or user trust. P3 is hygiene.
 
 ## P1
 
-### D1 — Sticker layers are not exported (text layers now are)
-Text clips are rasterized in the renderer and composited as PNG overlays since the
-2026-10 pass. Stickers still emit nothing: `compileProject` skips them and the export
-dialog shows a visible warning when a project contains any. System FFmpeg has no
-`drawtext`, and stickers additionally hit the canvas emoji limitation in D2.
-Impact: core promise, partially delivered.
-Effort: ~1 day once D2's asset decision lands (rasterize image assets like text PNGs).
-Owner: next engineering slot, blocked by D2.
-
-### D2 — Stickers are emoji strings, and canvas cannot rasterize color emoji
-`StickerClip.src` holds an emoji. Measured: `fillText('⭐')` and the SVG-text route both
-paint **0 opaque pixels** in the Electron renderer, while plain text paints fine. Any
-canvas-based render path (export milestone 2, or a future full compositor) will produce
-blank stickers.
-Impact: blocks sticker export; forces a product decision.
-Effort: decision 0; migration to bundled image assets ~1 day (+ asset sourcing).
-Owner: **Julian** — choose the asset set and licence (Twemoji CC-BY, Noto OFL, or
-self-authored). Engineering cannot pick a licence.
-
 ## P2
 
 ### D5 — 15 of 53 buttons do nothing
@@ -96,6 +77,10 @@ Kept here for traceability; each has a commit.
   verified by planting an implicit-any probe and watching tsc reject it (was D3).
 - `removeMedia` now cascades to the clips and audio clips referencing it, as one undo
   step (was D8).
+- Stickers are now original vector assets authored in-repo (src/assets/stickers), which
+  sidesteps both the canvas emoji limitation and any third-party licence; they export
+  through the same rasterized-overlay path as text. Legacy emoji sticker clips are
+  dropped by the v2->v3 migration (was D1, D2).
 - The three over-long files are split: Timeline clip items and track labels live in
   `Timeline/ClipItems.tsx`, transport controls in `PreviewControls.tsx`, store defaults
   in `store/defaults.ts`. Every file is now under 300 lines (was D6).

@@ -5,6 +5,7 @@ import {
   type Project,
 } from './project-schema'
 import { computeDuration } from './project-duration'
+import { isKnownSticker } from './sticker-assets'
 import type { ErrorCode } from './ipc-contract'
 
 const MAX_PROJECT_BYTES = 50 * 1024 * 1024
@@ -22,6 +23,15 @@ const bad = (code: ErrorCode, message: string): ParseOutcome => ({ ok: false, co
 const migrations: Record<number, (raw: Raw) => Raw> = {
   // v1 was a bare Project carrying an unmaintained updatedAt field.
   1: ({ updatedAt: _dropped, ...rest }) => rest,
+  // v2 stored stickers as emoji strings, which no canvas can rasterize
+  // (design doc F4). v3 stickers reference bundled vector assets; sources that
+  // are not known assets cannot render or export, so they are dropped on load.
+  2: raw => ({
+    ...raw,
+    stickerClips: Array.isArray(raw.stickerClips)
+      ? (raw.stickerClips as Raw[]).filter(s => typeof s?.src === 'string' && isKnownSticker(s.src))
+      : [],
+  }),
 }
 
 /**
@@ -56,7 +66,8 @@ export function parseProjectFile(text: string): ParseOutcome {
   if (from < 1) return bad('E_UNSUPPORTED_VERSION', `schema v${from} is too old to migrate`)
 
   let source: unknown = obj
-  if (from === CURRENT_SCHEMA_VERSION) {
+  // Every version from v2 up is an envelope; only v1 was a bare project.
+  if (declared !== undefined) {
     if (obj.app !== 'capjul') return bad('E_CORRUPT', 'envelope app field is not "capjul"')
     source = obj.project
     if (typeof source !== 'object' || source === null) return bad('E_CORRUPT', 'envelope has no project')

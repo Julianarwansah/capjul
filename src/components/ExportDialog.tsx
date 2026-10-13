@@ -3,7 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { X, Download, CheckCircle } from 'lucide-react'
 import { useEditorStore } from '../store/editorStore'
 import { compileProject } from '../shared/render-plan'
-import { rasterizeTextClip } from '../shared/text-rasterizer'
+import { rasterizeStickerClip, rasterizeTextClip } from '../shared/text-rasterizer'
 
 const RESOLUTIONS = [
   { label: '4K', width: 3840, height: 2160, bitrate: '20M' },
@@ -27,7 +27,6 @@ export function ExportDialog() {
   const [audioBitrate, setAudioBitrate] = useState('192k')
   const [done, setDone] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [warning, setWarning] = useState<string | null>(null)
 
   const res = RESOLUTIONS.find(r => r.label === resolution)!
 
@@ -51,11 +50,6 @@ export function ExportDialog() {
     setDone(false)
     setExportProgress(0)
     setIsExporting(true)
-    setWarning(
-      project.stickerClips.length > 0
-        ? 'Stickers are preview-only for now and will not appear in the export (tech debt D2).'
-        : null,
-    )
 
     const cleanup = api.onExportProgress(setExportProgress)
 
@@ -66,16 +60,29 @@ export function ExportDialog() {
       plan.height = res.height
       plan.fps = fps
 
-      // Text is rasterized here, in the renderer, because system FFmpeg has no
-      // drawtext. Stickers cannot be rasterized on canvas at all (tech debt D2).
+      // Text and stickers are rasterized here, in the renderer: system FFmpeg
+      // has no drawtext, and sticker vectors draw natively on canvas whereas
+      // emoji fonts do not (design doc F4).
       const textClips = project.textClips.filter(t => t.duration > 0)
+      const stickerClips = project.stickerClips.filter(s => s.duration > 0)
+      const overlayImages: string[] = textClips.map(t => rasterizeTextClip(t, plan.width, plan.height))
       plan.overlays = textClips.map((t, i) => ({
         png: '',
         z: 1000 + i,
         start: t.startTime,
         end: t.startTime + t.duration,
       }))
-      const overlayImages = textClips.map(t => rasterizeTextClip(t, plan.width, plan.height))
+      for (const s of stickerClips) {
+        const png = await rasterizeStickerClip(s, plan.width, plan.height)
+        if (!png) continue
+        plan.overlays.push({
+          png: '',
+          z: 2000 + plan.overlays.length,
+          start: s.startTime,
+          end: s.startTime + s.duration,
+        })
+        overlayImages.push(png)
+      }
 
       const exported = await api.exportVideo({ plan, overlayImages })
       if (!exported.ok) {
@@ -246,16 +253,6 @@ export function ExportDialog() {
                     {done && <CheckCircle size={14} style={{ color: '#4ade80' }} />}
                   </div>
                 </div>
-              )}
-
-              {/* Warning */}
-              {warning && (
-                <p
-                  className="text-xs p-3 rounded"
-                  style={{ background: 'var(--color-bg-surface)', color: 'var(--color-text-secondary)' }}
-                >
-                  {warning}
-                </p>
               )}
 
               {/* Error */}
