@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { computeDuration, useEditorStore } from './editorStore'
+import { useEditorStore } from './editorStore'
+import { computeDuration } from '../shared/project-duration'
 import type { AudioClip, Caption, Clip, MediaFile, StickerClip, TextClip } from '../types'
 
 const s = () => useEditorStore.getState()

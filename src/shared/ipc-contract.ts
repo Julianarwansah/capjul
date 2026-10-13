@@ -1,0 +1,68 @@
+import type { FfprobeResult } from './ffprobe'
+import type { Project } from './project-schema'
+
+// The single source of truth for the renderer <-> main boundary. Main, preload
+// and the renderer all derive their types from this module, so a channel added
+// on one side and forgotten on another is a compile error.
+
+export const IPC = {
+  projectSave: 'project:save',
+  projectOpen: 'project:open',
+  projectAutosave: 'project:autosave',
+  projectRecovery: 'project:recovery',
+  projectRestore: 'project:restore',
+  mediaProbe: 'media:probe',
+  mediaExport: 'media:export',
+  exportProgress: 'export:progress',
+  dialogOpenMedia: 'dialog:openMedia',
+} as const
+
+export type ErrorCode =
+  | 'E_CANCELLED'
+  | 'E_NOT_FOUND'
+  | 'E_PERMISSION'
+  | 'E_DISK_FULL'
+  | 'E_CORRUPT'
+  | 'E_VALIDATION'
+  | 'E_FUTURE_VERSION'
+  | 'E_UNSUPPORTED_VERSION'
+  | 'E_TOO_LARGE'
+  | 'E_FFMPEG_MISSING'
+
+// Errors cross IPC as values: thrown exceptions lose their shape in transit.
+export type IpcResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: { code: ErrorCode; message: string } }
+
+export const ok = <T>(value: T): IpcResult<T> => ({ ok: true, value })
+export const fail = (code: ErrorCode, message: string): IpcResult<never> =>
+  ({ ok: false, error: { code, message } })
+
+export interface RecoveryInfo {
+  at: number
+  name: string
+}
+
+export interface ExportRequest {
+  inputs: Array<{ path: string; start: number; end: number }>
+  duration: number
+  width: number
+  height: number
+  fps: number
+  videoBitrate: string
+  audioBitrate: string
+  format: 'mp4' | 'mov' | 'webm'
+}
+
+export interface ElectronApi {
+  getPathForFile: (file: File) => string
+  openMedia: () => Promise<IpcResult<string[]>>
+  saveProject: (project: Project, path?: string) => Promise<IpcResult<string>>
+  openProject: () => Promise<IpcResult<Project>>
+  autosaveProject: (project: Project) => Promise<IpcResult<{ at: number }>>
+  recoveryInfo: () => Promise<IpcResult<RecoveryInfo | null>>
+  restoreAutosave: () => Promise<IpcResult<Project>>
+  probeMedia: (path: string) => Promise<IpcResult<FfprobeResult>>
+  exportVideo: (request: ExportRequest) => Promise<IpcResult<string>>
+  onExportProgress: (cb: (percent: number) => void) => () => void
+}
