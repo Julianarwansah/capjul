@@ -2,8 +2,14 @@ import { app, BrowserWindow, ipcMain, dialog, shell, protocol } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
-import { spawn, execSync } from 'node:child_process'
+import { spawn, execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import os from 'node:os'
+
+const execFileAsync = promisify(execFile)
+
+// ffprobe JSON grows with stream count; the 1 MB execFile default is too small.
+const FFPROBE_MAX_BUFFER = 16 * 1024 * 1024
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL
@@ -87,12 +93,18 @@ ipcMain.handle('dialog:openProject', async () => {
   return null
 })
 
-// IPC: Get media info using ffprobe
+// IPC: Get media info using ffprobe.
+// Arguments go to execFile as an array, never through a shell — paths arrive from
+// drag-and-drop and may contain $(...), backticks or quotes.
 ipcMain.handle('ffmpeg:probe', async (_, filePath: string) => {
   try {
-    const ffprobeCmd = `ffprobe -v quiet -print_format json -show_streams -show_format "${filePath}"`
-    const output = execSync(ffprobeCmd, { encoding: 'utf-8' })
-    return JSON.parse(output)
+    const { stdout } = await execFileAsync('ffprobe', [
+      '-v', 'quiet',
+      '-print_format', 'json',
+      '-show_streams', '-show_format',
+      filePath,
+    ], { encoding: 'utf-8', maxBuffer: FFPROBE_MAX_BUFFER })
+    return JSON.parse(stdout)
   } catch (err) {
     console.error('[ffprobe] failed for', filePath, err instanceof Error ? err.message : err)
     return null
@@ -121,7 +133,9 @@ ipcMain.handle('ffmpeg:export', async (_, options: ExportOptions) => {
       const timeMatch = text.match(/time=(\d+):(\d+):(\d+\.\d+)/)
       if (timeMatch) {
         const secs = +timeMatch[1] * 3600 + +timeMatch[2] * 60 + +timeMatch[3]
-        progress = Math.min(99, Math.round((secs / options.duration) * 100))
+        progress = options.duration > 0
+          ? Math.min(99, Math.round((secs / options.duration) * 100))
+          : 0
         mainWindow?.webContents.send('export:progress', progress)
       }
     })
