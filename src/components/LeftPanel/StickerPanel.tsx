@@ -6,15 +6,17 @@ import { stickerDataUrl } from '../../shared/sticker-svgs'
 
 export function StickerPanel() {
   const [search, setSearch] = useState('')
-  const { addStickerClip, currentTime, project } = useEditorStore()
+  const { addStickerClip, addTrack, currentTime, project } = useEditorStore()
 
   const assets = STICKER_ASSETS.filter(a => a.label.toLowerCase().includes(search.toLowerCase()))
 
   function addSticker(id: string) {
-    const track = project.tracks.find(t => t.type === 'sticker') ?? { id: 'sticker-default' }
+    // Clips on a track that does not exist would preview and export but never
+    // appear on the timeline, so create the track when it is missing.
+    const trackId = project.tracks.find(t => t.type === 'sticker')?.id ?? addTrack('sticker')
     addStickerClip({
       id: crypto.randomUUID(),
-      trackId: track.id,
+      trackId,
       startTime: currentTime,
       duration: 3,
       src: id,

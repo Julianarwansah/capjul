@@ -70,7 +70,7 @@ interface EditorState {
   updateCaption: (id: string, changes: Partial<Caption>) => void
   removeCaption: (id: string) => void
 
-  addTrack: (type: Track['type']) => void
+  addTrack: (type: Track['type']) => string
   removeTrack: (id: string) => void
   updateTrack: (id: string, changes: Partial<Track>) => void
 
@@ -192,6 +192,7 @@ export const useEditorStore = create<EditorState>()(
     addTrack: (type) => {
       const track: Track = { id: crypto.randomUUID(), type, label: `${type} track`, muted: false, locked: false, height: type === 'audio' ? 48 : 64 }
       get().mutate(p => ({ ...p, tracks: [...p.tracks, track] }))
+      return track.id
     },
     removeTrack: (id) => get().mutate(p => ({ ...p, tracks: p.tracks.filter(t => t.id !== id) })),
     updateTrack: (id, changes) => get().mutate(

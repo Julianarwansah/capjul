@@ -244,6 +244,11 @@ describe('undo / redo', () => {
     expect(s().project.tracks).toHaveLength(2)
   })
 
+  it('returns the new track id so panels can place clips on it', () => {
+    const id = s().addTrack('sticker')
+    expect(s().project.tracks.some(t => t.id === id && t.type === 'sticker')).toBe(true)
+  })
+
   it('caps history without breaking the index', () => {
     for (let i = 0; i < 80; i++) {
       s().addClip(makeClip({ startTime: i * 10, duration: 1 }))

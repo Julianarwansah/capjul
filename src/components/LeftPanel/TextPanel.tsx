@@ -31,12 +31,14 @@ function makeTextClip(overrides: Partial<TextClip> = {}): TextClip {
 }
 
 export function TextPanel() {
-  const { addTextClip, currentTime, project } = useEditorStore()
+  const { addTextClip, addTrack, currentTime, project } = useEditorStore()
 
   function addText(preset?: typeof TEXT_PRESETS[number]) {
-    const track = project.tracks.find(t => t.type === 'text') ?? { id: 'text-default' }
+    // Clips on a track that does not exist would preview and export but never
+    // appear on the timeline, so create the track when it is missing.
+    const trackId = project.tracks.find(t => t.type === 'text')?.id ?? addTrack('text')
     const clip = makeTextClip({
-      trackId: track.id,
+      trackId,
       startTime: currentTime,
       text: preset?.label ?? 'Add Text',
       fontFamily: preset?.fontFamily ?? 'Arial',
