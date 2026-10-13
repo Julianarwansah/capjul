@@ -43,3 +43,28 @@ node rasterize.mjs
 
 `testsrc`'s baked-in frame counter is what makes trim offsets and speed verifiable by
 eye: at timeline t=2.5 with `mediaStart: 1`, the counter reads 3.
+
+## Phase 2 harness (compositor + frame pump)
+
+`phase2/` verifies the renderer-side half of the Phase 2 compositor without the app's
+IPC transport, which a native save dialog makes unautomatable.
+
+- `frame-server.mjs` — a node HTTP server that stands in for the main process: it
+  accepts RGBA frames over POST and pipes them into `ffmpeg -f rawvideo -pix_fmt rgba
+  -i pipe:0`, applying backpressure by answering only after stdin drains.
+- `pump-page.html` — a page that loads an esbuild bundle of `src/shared/export-pump.ts`
+  (`--loader:.svg=text`) and pumps a scene into that server.
+
+Run it:
+
+```sh
+npx esbuild src/shared/export-pump.ts --bundle --format=iife --global-name=PUMP \
+  --loader:.svg=text --outfile=/tmp/rp/pump.js
+# serve pump-page.html next to pump.js, launch headless Chrome with
+# --allow-file-access-from-files on port 9334, start frame-server.mjs, then evaluate
+# runExportPump with sendFrame posting to http://127.0.0.1:9444/frame
+```
+
+Measured: 120 frames (4 s at 30 fps, 1280x720) pumped and encoded in 2.9 s, ffmpeg
+exit 0, output duration exactly 4.0 s, and the encoded frame at t=2 shows the
+composited text layer.
