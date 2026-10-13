@@ -7,10 +7,10 @@ import { promisify } from 'node:util'
 import os from 'node:os'
 import {
   IPC, fail, ok,
-  type ExportPayload, type IpcResult, type RecoveryInfo, type RenderPlan,
+  type CompositedExportPayload, type ExportPayload, type IpcResult, type RecoveryInfo, type RenderPlan,
 } from '../src/shared/ipc-contract'
-import { ExportPayloadSchema } from '../src/shared/render-plan-schema'
-import { buildRenderArgs } from '../src/shared/render-plan'
+import { CompositedExportPayloadSchema, ExportPayloadSchema } from '../src/shared/render-plan-schema'
+import { buildCompositedArgs, buildRenderArgs } from '../src/shared/render-plan'
 import { FfprobeResultSchema, type FfprobeResult } from '../src/shared/ffprobe'
 import type { Project } from '../src/shared/project-schema'
 import { getLastSavedPath, mapFsError, readProjectFile, recoveryInfo, restoreAutosave, writeAutosave, writeProjectFile } from './project-store'
@@ -263,6 +263,81 @@ ipcMain.handle(IPC.mediaExport, async (_, payload: ExportPayload): Promise<IpcRe
         resolve(ok(outputPath))
       } else {
         resolve(fail('E_EXPORT_FAILED', `ffmpeg exited with code ${code}`))
+      }
+    })
+  })
+})
+
+// IPC: composited export (Phase 2). The renderer draws every frame with the
+// shared compositor and streams raw RGBA over export:frame; this handler owns
+// the ffmpeg child whose stdin is the video input. Acking each frame only after
+// stdin drains is what gives the pump backpressure.
+ipcMain.handle(IPC.mediaExportComposited, async (event, payload: CompositedExportPayload): Promise<IpcResult<string>> => {
+  const validated = CompositedExportPayloadSchema.safeParse(payload)
+  if (!validated.success) {
+    const issue = validated.error.issues[0]
+    return fail('E_VALIDATION', `composited export payload invalid at "${issue.path.join('.')}"`)
+  }
+  const p = validated.data as CompositedExportPayload
+  const sender = event.sender
+
+  const result = await dialog.showSaveDialog(mainWindow!, {
+    filters: [
+      { name: 'MP4 Video', extensions: ['mp4'] },
+      { name: 'MOV Video', extensions: ['mov'] },
+      { name: 'WebM Video', extensions: ['webm'] },
+    ],
+    defaultPath: `export_${Date.now()}.${p.output.format}`,
+  })
+  if (result.canceled || !result.filePath) return fail('E_CANCELLED', 'export cancelled')
+  const outputPath = result.filePath
+
+  const proc = spawn('ffmpeg', buildCompositedArgs(p.inputs, p.audio, p.scene, p.output, outputPath))
+  const total = Math.max(1, Math.ceil(p.scene.duration * p.scene.fps))
+  let frames = 0
+  let stderrTail = ''
+  let settled = false
+
+  function onFrame(_: Electron.IpcMainEvent, bytes: Uint8Array) {
+    if (settled || proc.stdin.destroyed) return
+    frames++
+    const chunk = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    sender.send(IPC.exportProgress, Math.min(99, Math.round((frames / total) * 100)))
+    if (proc.stdin.write(chunk)) sender.send(IPC.exportFrameAck)
+    else proc.stdin.once('drain', () => sender.send(IPC.exportFrameAck))
+  }
+  function onEnd() {
+    if (!proc.stdin.destroyed) proc.stdin.end()
+  }
+  function cleanup() {
+    ipcMain.removeListener(IPC.exportFrame, onFrame)
+    ipcMain.removeListener(IPC.exportFramesEnd, onEnd)
+  }
+  ipcMain.on(IPC.exportFrame, onFrame)
+  ipcMain.on(IPC.exportFramesEnd, onEnd)
+
+  proc.stderr.on('data', (data: Buffer) => {
+    stderrTail = (stderrTail + data.toString()).slice(-2000)
+  })
+
+  return new Promise<IpcResult<string>>((resolve) => {
+    proc.on('error', (err) => {
+      settled = true
+      cleanup()
+      sender.send(IPC.exportAbort, `export failed: ${err.message}`)
+      const missing = (err as NodeJS.ErrnoException).code === 'ENOENT'
+      resolve(fail(missing ? 'E_FFMPEG_MISSING' : 'E_EXPORT_FAILED', err.message))
+    })
+    proc.on('close', (code: number) => {
+      settled = true
+      cleanup()
+      if (code === 0) {
+        sender.send(IPC.exportProgress, 100)
+        resolve(ok(outputPath))
+      } else {
+        const tail = stderrTail.trim().split('\n').pop() ?? ''
+        sender.send(IPC.exportAbort, `ffmpeg exited with code ${code}`)
+        resolve(fail('E_EXPORT_FAILED', `ffmpeg exited with code ${code}: ${tail}`))
       }
     })
   })

@@ -1,6 +1,7 @@
 import type { FfprobeResult } from './ffprobe'
 import type { Project } from './project-schema'
-import type { RenderPlan } from './render-plan'
+import type { RenderAudio, RenderInput, RenderOutput, RenderPlan } from './render-plan'
+import type { Scene } from './scene'
 
 export type { RenderPlan } from './render-plan'
 
@@ -19,6 +20,11 @@ export const IPC = {
   projectRestore: 'project:restore',
   mediaProbe: 'media:probe',
   mediaExport: 'media:export',
+  mediaExportComposited: 'media:exportComposited',
+  exportFrame: 'export:frame',
+  exportFrameAck: 'export:frame-ack',
+  exportFramesEnd: 'export:frames-end',
+  exportAbort: 'export:abort',
   exportProgress: 'export:progress',
   dialogOpenMedia: 'dialog:openMedia',
 } as const
@@ -57,6 +63,13 @@ export interface ExportPayload {
   overlayImages: string[]
 }
 
+export interface CompositedExportPayload {
+  scene: Scene
+  inputs: RenderInput[]
+  audio: RenderAudio[]
+  output: RenderOutput
+}
+
 export interface ElectronApi {
   getPathForFile: (file: File) => string
   openMedia: () => Promise<IpcResult<string[]>>
@@ -67,5 +80,9 @@ export interface ElectronApi {
   restoreAutosave: () => Promise<IpcResult<Project>>
   probeMedia: (path: string) => Promise<IpcResult<FfprobeResult>>
   exportVideo: (payload: ExportPayload) => Promise<IpcResult<string>>
+  exportVideoComposited: (payload: CompositedExportPayload) => Promise<IpcResult<string>>
+  sendExportFrame: (bytes: Uint8Array) => Promise<void>
+  endExportFrames: () => void
+  onExportAbort: (cb: (message: string) => void) => () => void
   onExportProgress: (cb: (percent: number) => void) => () => void
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { StickerClipSchema, TextClipSchema } from './project-schema'
 
 // Validation for the render plan crossing IPC into main. Kept out of
 // ipc-contract.ts and render-plan.ts so neither the preload nor the renderer
@@ -60,4 +61,45 @@ export const ExportPayloadSchema = z.object({
   // Base64 PNGs, index-aligned with plan.overlays. Capped: a 1080p mostly
   // transparent layer compresses to well under this.
   overlayImages: z.array(z.string().max(4_000_000)).max(64),
+})
+
+const SceneTransformSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  scaleX: z.number(),
+  scaleY: z.number(),
+  rotation: z.number(),
+  opacity: z.number(),
+})
+
+const SceneLayerSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('video'),
+    mediaId: z.string(), start: z.number(), end: z.number(),
+    transform: SceneTransformSchema, filter: z.string(),
+    mediaStart: z.number(), speed: z.number(),
+  }),
+  z.object({
+    kind: z.literal('image'),
+    mediaId: z.string(), start: z.number(), end: z.number(),
+    transform: SceneTransformSchema, filter: z.string(),
+  }),
+  z.object({ kind: z.literal('text'), clip: TextClipSchema, start: z.number(), end: z.number() }),
+  z.object({ kind: z.literal('sticker'), clip: StickerClipSchema, start: z.number(), end: z.number() }),
+])
+
+export const SceneSchema = z.object({
+  width: z.number(),
+  height: z.number(),
+  fps: z.number(),
+  duration: z.number(),
+  background: z.string(),
+  layers: z.array(SceneLayerSchema),
+})
+
+export const CompositedExportPayloadSchema = z.object({
+  scene: SceneSchema,
+  inputs: RenderPlanSchema.shape.inputs,
+  audio: RenderPlanSchema.shape.audio,
+  output: RenderPlanSchema.shape.output,
 })

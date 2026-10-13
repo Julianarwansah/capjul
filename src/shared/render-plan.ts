@@ -275,12 +275,18 @@ function videoGraph(plan: RenderPlan): string[] {
 }
 
 /** Clips from audio-less files must stay out of the mix or the graph breaks. */
-function audibleEntries(plan: RenderPlan): RenderAudio[] {
-  return plan.audio.filter(a => plan.inputs.find(n => n.id === a.inputId)?.hasAudio !== false)
+export function audibleAudio(inputs: RenderInput[], audio: RenderAudio[]): RenderAudio[] {
+  return audio.filter(a => inputs.find(n => n.id === a.inputId)?.hasAudio !== false)
 }
 
-function audioGraph(plan: RenderPlan, entries: RenderAudio[]): string[] {
-  const inputIndex = new Map(plan.inputs.map((n, i) => [n.id, i]))
+/** Audio filter chains. indexOffset shifts input indices when the video comes
+ *  from another input (the composited rawvideo pipe is input 0). */
+export function audioGraphFilters(
+  inputs: RenderInput[],
+  entries: RenderAudio[],
+  indexOffset = 0,
+): string[] {
+  const inputIndex = new Map(inputs.map((n, i) => [n.id, i + indexOffset]))
   return entries.map((entry, i) => {
     const span = (entry.mediaEnd - entry.mediaStart) / entry.speed
     const chain = [
@@ -310,11 +316,52 @@ function outputArgs(plan: RenderPlan, audioCount: number, outputPath: string): s
   return args
 }
 
+export function audioMixFilter(count: number): string {
+  const labels = Array.from({ length: count }, (_, i) => `[ax${i}]`).join('')
+  return `${labels}amix=inputs=${count}:duration=longest:normalize=0[aout]`
+}
+
 export function buildRenderArgs(plan: RenderPlan, outputPath: string): string[] {
-  const entries = audibleEntries(plan)
-  const mix = entries.length
-    ? [`${entries.map((_, i) => `[ax${i}]`).join('')}amix=inputs=${entries.length}:duration=longest:normalize=0[aout]`]
-    : []
-  const graph = [...videoGraph(plan), ...audioGraph(plan, entries), ...mix].join(';\n')
+  const entries = audibleAudio(plan.inputs, plan.audio)
+  const mix = entries.length ? [audioMixFilter(entries.length)] : []
+  const graph = [
+    ...videoGraph(plan),
+    ...audioGraphFilters(plan.inputs, entries),
+    ...mix,
+  ].join(';\n')
   return [...inputArgs(plan), '-filter_complex', graph, ...outputArgs(plan, entries.length, outputPath)]
+}
+
+/** Arguments for the Phase 2 path: video arrives as raw RGBA on stdin (input
+ *  0), media files follow and contribute audio only. */
+export function buildCompositedArgs(
+  inputs: RenderInput[],
+  audio: RenderAudio[],
+  scene: { width: number; height: number; fps: number; duration: number },
+  output: RenderOutput,
+  outputPath: string,
+): string[] {
+  const args = ['-y', '-hide_banner']
+  args.push(
+    '-f', 'rawvideo', '-pix_fmt', 'rgba',
+    '-s', `${scene.width}x${scene.height}`,
+    '-r', String(scene.fps),
+    '-i', 'pipe:0',
+  )
+  for (const input of inputs) args.push('-i', input.path)
+
+  const entries = audibleAudio(inputs, audio)
+  const filters = audioGraphFilters(inputs, entries, 1)
+  const mix = entries.length ? [audioMixFilter(entries.length)] : []
+  if (filters.length) args.push('-filter_complex', [...filters, ...mix].join(';\n'))
+
+  const codecs = CODECS[output.format]
+  args.push('-map', '0:v')
+  if (entries.length) args.push('-map', '[aout]')
+  args.push('-t', String(round4(scene.duration)), '-r', String(scene.fps), ...codecs.video)
+  if (entries.length) args.push(...codecs.audio, '-b:a', output.audioBitrate)
+  args.push('-b:v', output.videoBitrate)
+  if (output.format !== 'webm') args.push('-movflags', '+faststart')
+  args.push(outputPath)
+  return args
 }
