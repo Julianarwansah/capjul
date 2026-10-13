@@ -52,8 +52,25 @@ function createWindow() {
 
 app.whenReady().then(() => {
   protocol.registerFileProtocol('media', (request, callback) => {
-    const filePath = decodeURIComponent(request.url.replace('media://', ''))
-    callback({ path: filePath })
+    const raw = decodeURIComponent(request.url.replace('media://', ''))
+    // Reject relative-looking URLs (e.g. media://host/path, which would resolve
+    // against the process cwd) and anything that is not an existing file.
+    if (!path.isAbsolute(raw)) {
+      callback({ error: -2 })
+      return
+    }
+    const resolved = path.resolve(raw)
+    let isFile = false
+    try {
+      isFile = fs.statSync(resolved).isFile()
+    } catch {
+      isFile = false
+    }
+    if (!isFile) {
+      callback({ error: -2 })
+      return
+    }
+    callback({ path: resolved })
   })
   createWindow()
   app.on('activate', () => { if (!mainWindow) createWindow() })
