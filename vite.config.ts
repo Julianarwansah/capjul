@@ -30,7 +30,12 @@ export default defineConfig({
         vite: {
           build: {
             outDir: 'dist-electron',
-            rollupOptions: { external: ['electron'] },
+            // Electron executes preload scripts in a sandboxed CommonJS context.
+            // The plugin defaults to ESM here because package.json is type:module,
+            // and an ESM preload never runs: window.electronAPI stays undefined and
+            // every optional-chained call silently no-ops.
+            lib: { formats: ['cjs'], fileName: () => 'preload.cjs' },
+            rolldownOptions: { external: ['electron'] },
           },
         },
       },
