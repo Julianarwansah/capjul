@@ -116,19 +116,23 @@ export function PreviewPanel() {
       <div
         ref={containerRef}
         className="flex-1 flex items-center justify-center relative overflow-hidden"
-        style={{ background: '#0a0a0a' }}
+        style={{ background: '#0a0a0a', containerType: 'size' }}
       >
         {/* Canvas container */}
         <div
           className="relative"
           style={{
-            width: `min(100%, ${aspectRatio > 1 ? '80vh * ' + aspectRatio : '60vw'}px)`,
-            maxWidth: '100%',
-            maxHeight: '100%',
+            // Fit the project's aspect ratio inside the preview area exactly.
+            // The previous expression ("80vh * 1.77px") was invalid CSS, so the
+            // width declaration was dropped and the canvas collapsed to 0x0.
+            width: `min(100cqw, calc(100cqh * ${aspectRatio}))`,
             aspectRatio: `${canvasW}/${canvasH}`,
             background: project.backgroundColor,
             overflow: 'hidden',
             transform: `scale(${previewScale})`,
+            // Overlays size themselves in cqh so they track the rendered canvas
+            // height, not the root font-size.
+            containerType: 'size',
           }}
         >
           {/* Background video/image */}
@@ -166,7 +170,7 @@ export function PreviewPanel() {
                 top: `${t.y * 100}%`,
                 transform: `translate(-50%, -50%) rotate(${t.rotation}deg) scale(${t.scaleX}, ${t.scaleY})`,
                 fontFamily: t.fontFamily,
-                fontSize: `${t.fontSize / canvasH * 100}%`,
+                fontSize: `${(t.fontSize / canvasH) * 100}cqh`,
                 color: t.fontColor,
                 fontWeight: t.bold ? 'bold' : 'normal',
                 fontStyle: t.italic ? 'italic' : 'normal',
