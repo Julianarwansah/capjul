@@ -124,6 +124,32 @@ describe('project.duration stays derived', () => {
   })
 })
 
+describe('removeMedia', () => {
+  it('cascades to clips and audio clips that reference the media', () => {
+    s().addMedia([makeMedia(), makeMedia({ id: 'media-2', path: '/tmp/b.mp3', type: 'audio', name: 'b.mp3' })])
+    s().addClip(makeClip({ mediaId: 'media-1' }))
+    s().addClip(makeClip({ id: 'other', mediaId: 'media-2' }))
+    s().addAudioClip(makeAudioClip({ mediaId: 'media-2' }))
+
+    s().removeMedia('media-2')
+
+    expect(s().project.media.map(m => m.id)).toEqual(['media-1'])
+    expect(s().project.clips.map(c => c.id)).toHaveLength(1)
+    expect(s().project.audioClips).toEqual([])
+  })
+
+  it('is undoable as one step, bringing the clips back', () => {
+    s().addMedia([makeMedia()])
+    s().addClip(makeClip())
+    s().removeMedia('media-1')
+    expect(s().project.media).toEqual([])
+
+    s().undo()
+    expect(s().project.media).toHaveLength(1)
+    expect(s().project.clips).toHaveLength(1)
+  })
+})
+
 describe('undo / redo', () => {
   it('seeds history with the initial project so the first undo has somewhere to go', () => {
     // Root cause of the original data-loss bug: history started empty with

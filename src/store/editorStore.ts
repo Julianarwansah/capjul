@@ -170,7 +170,14 @@ export const useEditorStore = create<EditorState>()(
     setActiveLeftTab: (tab) => set({ activeLeftTab: tab }),
 
     addMedia: (files) => get().mutate(p => ({ ...p, media: [...p.media, ...files] })),
-    removeMedia: (id) => get().mutate(p => ({ ...p, media: p.media.filter(m => m.id !== id) })),
+    // Clips referencing a removed media item would dangle forever, so they go
+    // with it. One mutate() means undo restores media and clips together.
+    removeMedia: (id) => get().mutate(p => ({
+      ...p,
+      media: p.media.filter(m => m.id !== id),
+      clips: p.clips.filter(c => c.mediaId !== id),
+      audioClips: p.audioClips.filter(c => c.mediaId !== id),
+    })),
 
     addClip: (clip) => get().mutate(p => ({ ...p, clips: [...p.clips, clip] })),
     updateClip: (id, changes) => get().mutate(
