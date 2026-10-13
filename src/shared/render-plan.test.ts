@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { atempoChain, buildRenderArgs, compileProject, overlayOrigin, type RenderOutput } from './render-plan'
+import {
+  atempoChain, buildRenderArgs, colorAdjustChain, compileProject, overlayOrigin,
+  type RenderLayer, type RenderOutput,
+} from './render-plan'
 import type { AudioClip, Clip, MediaFile, Project } from './project-schema'
 
 const output: RenderOutput = { format: 'mp4', videoBitrate: '8M', audioBitrate: '192k' }
@@ -85,6 +88,40 @@ describe('atempoChain', () => {
   it('chains instances for speeds below 0.5', () => {
     // 0.5 * 0.5 * 0.8 = 0.2, each factor inside atempo's 0.5-100 range
     expect(atempoChain(0.2)).toEqual(['atempo=0.5', 'atempo=0.5', 'atempo=0.8'])
+  })
+})
+
+describe('colorAdjustChain', () => {
+  const layer = (over: Partial<RenderLayer> = {}): RenderLayer => ({
+    inputId: 'in0', kind: 'video', z: 0, start: 0, end: 1, mediaStart: 0, mediaEnd: 1,
+    speed: 1, opacity: 1, x: 0, y: 0, scaleX: 1, scaleY: 1,
+    brightness: 0, contrast: 0, saturation: 0,
+    ...over,
+  })
+
+  it('is empty when every channel is neutral', () => {
+    expect(colorAdjustChain(layer())).toEqual([])
+  })
+
+  it('maps brightness multiplicatively, like the preview CSS brightness()', () => {
+    expect(colorAdjustChain(layer({ brightness: 20 })))
+      .toEqual(['colorchannelmixer=rr=1.2:gg=1.2:bb=1.2'])
+  })
+
+  it('maps contrast and saturation onto eq, like the preview CSS', () => {
+    expect(colorAdjustChain(layer({ contrast: -10, saturation: 50 })))
+      .toEqual(['eq=contrast=0.9:saturation=1.5'])
+  })
+
+  it('reaches the filtergraph only when non-neutral', () => {
+    const neutral = buildRenderArgs(compileProject(project({ clips: [clip()] }), output), '/o.mp4').join(' ')
+    expect(neutral).not.toContain('eq=')
+    expect(neutral).not.toContain('colorchannelmixer')
+
+    const adjusted = buildRenderArgs(
+      compileProject(project({ clips: [clip({ contrast: 30 })] }), output), '/o.mp4',
+    ).join(' ')
+    expect(adjusted).toContain('eq=contrast=1.3:saturation=1')
   })
 })
 

@@ -28,6 +28,9 @@ export const RenderPlanSchema = z.object({
     y: z.number(),
     scaleX: z.number(),
     scaleY: z.number(),
+    brightness: z.number().default(0),
+    contrast: z.number().default(0),
+    saturation: z.number().default(0),
   })),
   overlays: z.array(z.object({
     png: z.string(),

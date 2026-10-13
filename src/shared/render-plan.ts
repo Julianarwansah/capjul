@@ -29,6 +29,9 @@ export interface RenderLayer {
   y: number
   scaleX: number
   scaleY: number
+  brightness: number
+  contrast: number
+  saturation: number
 }
 
 export interface RenderAudio {
@@ -91,6 +94,9 @@ function compileLayers(project: Project, inputFor: InputAllocator): RenderLayer[
       y: clip.y,
       scaleX: clip.scaleX,
       scaleY: clip.scaleY,
+      brightness: clip.brightness,
+      contrast: clip.contrast,
+      saturation: clip.saturation,
     })
   }
   return layers.sort((a, b) => a.z - b.z || a.start - b.start)
@@ -196,6 +202,23 @@ function colorLiteral(background: string): string {
   return /^#[0-9a-f]{6}$/i.test(background) ? background : 'black'
 }
 
+/**
+ * Mirror of the preview's CSS filter string: brightness(1+b/100),
+ * contrast(1+c/100), saturate(1+s/100). CSS brightness is multiplicative while
+ * ffmpeg's eq brightness is additive, so brightness goes through
+ * colorchannelmixer to match; eq's contrast and saturation use the same
+ * mid-grey-relative model as CSS.
+ */
+export function colorAdjustChain(layer: RenderLayer): string[] {
+  const b = 1 + layer.brightness / 100
+  const c = 1 + layer.contrast / 100
+  const s = 1 + layer.saturation / 100
+  const chain: string[] = []
+  if (b !== 1) chain.push(`colorchannelmixer=rr=${round4(b)}:gg=${round4(b)}:bb=${round4(b)}`)
+  if (c !== 1 || s !== 1) chain.push(`eq=contrast=${round4(c)}:saturation=${round4(s)}`)
+  return chain
+}
+
 function inputArgs(plan: RenderPlan): string[] {
   const args = ['-y', '-hide_banner']
   for (const input of plan.inputs) {
@@ -221,6 +244,7 @@ function layerChain(plan: RenderPlan, layer: RenderLayer): string {
     `scale=${bw}:${bh}:force_original_aspect_ratio=decrease`,
     `pad=${bw}:${bh}:(ow-iw)/2:(oh-ih)/2`,
     'setsar=1',
+    ...colorAdjustChain(layer),
     `fps=${plan.fps}`,
   )
   if (layer.opacity < 1) chain.push('format=rgba', `colorchannelmixer=aa=${round4(layer.opacity)}`)

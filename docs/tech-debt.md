@@ -20,12 +20,18 @@ Impact: user trust — the UI promises functions it does not have.
 Effort: 0.5-1 day per real feature; but first a keep/cut decision per button.
 Owner: **Julian** for keep/cut; engineering for the kept ones.
 
-### D7 — Preview/export parity gaps beyond font size
-Text `shadow*`, `strokeWidth`, `letterSpacing` are emitted in px, so they do not scale
-with the canvas; clip color filters are a CSS filter string with no export equivalent.
-Impact: parity — exported text will not match the preview even after D1.
-Effort: folded into D1 if the parity harness is built; else 1 day.
-Owner: next engineering slot.
+### D7 — Parity: dead color fields and no pixel-diff harness
+Narrowed from its original scope. Text shadow/stroke/letter-spacing now scale with the
+canvas in the preview (cqh units), and brightness/contrast/saturation export with math
+that mirrors the preview's CSS filter string, verified by pixel-diffing real encodes.
+What remains: `exposure`, `highlights`, `shadows`, `temperature`, `tint` and `sharpness`
+are stored on every clip but used by neither the preview nor the export - dead weight
+that should be implemented or deleted, not left; and there is still no automated
+preview-vs-export pixel-diff harness (parity currently holds by construction: one
+layout module, proportional units, mirrored filter math).
+Impact: parity confidence; dead fields invite future drift.
+Effort: 0.5 day to delete the dead fields or 2-3 days to implement them; 1 day harness.
+Owner: next engineering slot for the field decision; harness deferred.
 
 ### D9 — External tooling commits and pushes without instruction
 Twice during hardening work, an unidentified tool in this environment created a commit
@@ -81,6 +87,9 @@ Kept here for traceability; each has a commit.
   sidesteps both the canvas emoji limitation and any third-party licence; they export
   through the same rasterized-overlay path as text. Legacy emoji sticker clips are
   dropped by the v2->v3 migration (was D1, D2).
+- Preview text shadow/stroke/letter-spacing scale with the canvas (cqh), and clip
+  brightness/contrast/saturation now export through colorchannelmixer + eq with the same
+  math as the preview's CSS filter string (part of D7).
 - The three over-long files are split: Timeline clip items and track labels live in
   `Timeline/ClipItems.tsx`, transport controls in `PreviewControls.tsx`, store defaults
   in `store/defaults.ts`. Every file is now under 300 lines (was D6).
