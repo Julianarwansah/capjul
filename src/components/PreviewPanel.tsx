@@ -97,6 +97,8 @@ export function PreviewPanel() {
   const canvasW = project.width
   const canvasH = project.height
   const aspectRatio = canvasW / canvasH
+  // An empty project has duration 0; guard so the bar renders 0% instead of NaN%.
+  const progressPct = project.duration > 0 ? (currentTime / project.duration) * 100 : 0
 
   // Get CSS filter for active clip
   const clipFilter = activeClip
@@ -270,12 +272,12 @@ export function PreviewPanel() {
         >
           <div
             className="h-full rounded-full"
-            style={{ width: `${(currentTime / project.duration) * 100}%`, background: 'var(--color-primary)' }}
+            style={{ width: `${progressPct}%`, background: 'var(--color-primary)' }}
           />
           <div
             className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
             style={{
-              left: `${(currentTime / project.duration) * 100}%`,
+              left: `${progressPct}%`,
               transform: 'translate(-50%, -50%)',
               background: 'var(--color-primary)',
             }}

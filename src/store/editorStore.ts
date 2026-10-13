@@ -16,13 +16,34 @@ const ASPECT_RATIOS: Record<AspectRatio, { width: number; height: number }> = {
   '1.85:1': { width: 1850, height: 1000 },
 }
 
+const HISTORY_LIMIT = 50
+// Continuous edits (drag, resize, slider, typing) fire per mousemove/keystroke.
+// Snapshots inside this window replace the previous one instead of stacking,
+// so one gesture stays one undo step.
+const COALESCE_WINDOW_MS = 500
+
+function cloneProject(p: Project): Project {
+  return JSON.parse(JSON.stringify(p)) as Project
+}
+
+/** True timeline length: the latest end time across every timed element. */
+export function computeDuration(p: Project): number {
+  let end = 0
+  for (const c of p.clips) end = Math.max(end, c.startTime + c.duration)
+  for (const c of p.textClips) end = Math.max(end, c.startTime + c.duration)
+  for (const c of p.stickerClips) end = Math.max(end, c.startTime + c.duration)
+  for (const c of p.audioClips) end = Math.max(end, c.startTime + c.duration)
+  for (const c of p.captions) end = Math.max(end, c.endTime)
+  return end
+}
+
 function createDefaultProject(): Project {
   return {
     id: crypto.randomUUID(),
     name: 'Untitled Project',
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    duration: 60,
+    duration: 0,
     width: 1920,
     height: 1080,
     fps: 30,
@@ -120,15 +141,20 @@ interface EditorState {
 
   undo: () => void
   redo: () => void
-  saveHistory: () => void
+  recordHistory: (coalesce?: boolean) => void
+  mutate: (fn: (p: Project) => Project, coalesce?: boolean) => void
 
   loadProject: (p: Project) => void
   newProject: () => void
 }
 
+const initialProject = createDefaultProject()
+let lastRecordedAt = 0
+let lastRecordWasContinuous = false
+
 export const useEditorStore = create<EditorState>()(
   subscribeWithSelector((set, get) => ({
-    project: createDefaultProject(),
+    project: initialProject,
     currentTime: 0,
     isPlaying: false,
     playbackSpeed: 1,
@@ -144,8 +170,8 @@ export const useEditorStore = create<EditorState>()(
     showProjectSettings: false,
     isExporting: false,
     exportProgress: 0,
-    history: [],
-    historyIndex: -1,
+    history: [initialProject],
+    historyIndex: 0,
 
     setCurrentTime: (t) => set({ currentTime: Math.max(0, t) }),
     setIsPlaying: (v) => set({ isPlaying: v }),
@@ -154,66 +180,69 @@ export const useEditorStore = create<EditorState>()(
     setScrollLeft: (s) => set({ scrollLeft: Math.max(0, s) }),
     setActiveLeftTab: (tab) => set({ activeLeftTab: tab }),
 
-    addMedia: (files) => set((s) => ({
-      project: { ...s.project, media: [...s.project.media, ...files] }
-    })),
-    removeMedia: (id) => set((s) => ({
-      project: { ...s.project, media: s.project.media.filter(m => m.id !== id) }
-    })),
+    addMedia: (files) => get().mutate(p => ({ ...p, media: [...p.media, ...files] })),
+    removeMedia: (id) => get().mutate(p => ({ ...p, media: p.media.filter(m => m.id !== id) })),
 
-    addClip: (clip) => {
-      get().saveHistory()
-      set((s) => ({ project: { ...s.project, clips: [...s.project.clips, clip] } }))
-    },
-    updateClip: (id, changes) => set((s) => ({
-      project: { ...s.project, clips: s.project.clips.map(c => c.id === id ? { ...c, ...changes } : c) }
-    })),
-    removeClip: (id) => {
-      get().saveHistory()
-      set((s) => ({ project: { ...s.project, clips: s.project.clips.filter(c => c.id !== id) } }))
-    },
+    addClip: (clip) => get().mutate(p => ({ ...p, clips: [...p.clips, clip] })),
+    updateClip: (id, changes) => get().mutate(
+      p => ({ ...p, clips: p.clips.map(c => c.id === id ? { ...c, ...changes } : c) }),
+      true,
+    ),
+    removeClip: (id) => get().mutate(p => ({ ...p, clips: p.clips.filter(c => c.id !== id) })),
     removeClips: (ids) => {
       if (ids.length === 0) return
-      get().saveHistory()
       const idSet = new Set(ids)
-      set((s) => ({ project: { ...s.project, clips: s.project.clips.filter(c => !idSet.has(c.id)) } }))
+      get().mutate(p => ({ ...p, clips: p.clips.filter(c => !idSet.has(c.id)) }))
     },
     splitClip: (id, time) => {
-      const { project } = get()
-      const clip = project.clips.find(c => c.id === id)
+      const clip = get().project.clips.find(c => c.id === id)
       if (!clip || time <= clip.startTime || time >= clip.startTime + clip.duration) return
-      get().saveHistory()
       const elapsed = time - clip.startTime
       const first: Clip = { ...clip, id: crypto.randomUUID(), duration: elapsed, mediaEnd: clip.mediaStart + elapsed * clip.speed }
       const second: Clip = { ...clip, id: crypto.randomUUID(), startTime: time, duration: clip.duration - elapsed, mediaStart: clip.mediaStart + elapsed * clip.speed }
-      set((s) => ({ project: { ...s.project, clips: s.project.clips.map(c => c.id === id ? first : c).concat(second) } }))
+      get().mutate(p => ({ ...p, clips: p.clips.flatMap(c => c.id === id ? [first, second] : [c]) }))
     },
 
-    addTextClip: (clip) => { get().saveHistory(); set((s) => ({ project: { ...s.project, textClips: [...s.project.textClips, clip] } })) },
-    updateTextClip: (id, changes) => set((s) => ({ project: { ...s.project, textClips: s.project.textClips.map(c => c.id === id ? { ...c, ...changes } : c) } })),
-    removeTextClip: (id) => { get().saveHistory(); set((s) => ({ project: { ...s.project, textClips: s.project.textClips.filter(c => c.id !== id) } })) },
+    addTextClip: (clip) => get().mutate(p => ({ ...p, textClips: [...p.textClips, clip] })),
+    updateTextClip: (id, changes) => get().mutate(
+      p => ({ ...p, textClips: p.textClips.map(c => c.id === id ? { ...c, ...changes } : c) }),
+      true,
+    ),
+    removeTextClip: (id) => get().mutate(p => ({ ...p, textClips: p.textClips.filter(c => c.id !== id) })),
 
-    addStickerClip: (clip) => { get().saveHistory(); set((s) => ({ project: { ...s.project, stickerClips: [...s.project.stickerClips, clip] } })) },
-    updateStickerClip: (id, changes) => set((s) => ({ project: { ...s.project, stickerClips: s.project.stickerClips.map(c => c.id === id ? { ...c, ...changes } : c) } })),
-    removeStickerClip: (id) => { get().saveHistory(); set((s) => ({ project: { ...s.project, stickerClips: s.project.stickerClips.filter(c => c.id !== id) } })) },
+    addStickerClip: (clip) => get().mutate(p => ({ ...p, stickerClips: [...p.stickerClips, clip] })),
+    updateStickerClip: (id, changes) => get().mutate(
+      p => ({ ...p, stickerClips: p.stickerClips.map(c => c.id === id ? { ...c, ...changes } : c) }),
+      true,
+    ),
+    removeStickerClip: (id) => get().mutate(p => ({ ...p, stickerClips: p.stickerClips.filter(c => c.id !== id) })),
 
-    addAudioClip: (clip) => { get().saveHistory(); set((s) => ({ project: { ...s.project, audioClips: [...s.project.audioClips, clip] } })) },
-    updateAudioClip: (id, changes) => set((s) => ({ project: { ...s.project, audioClips: s.project.audioClips.map(c => c.id === id ? { ...c, ...changes } : c) } })),
-    removeAudioClip: (id) => { get().saveHistory(); set((s) => ({ project: { ...s.project, audioClips: s.project.audioClips.filter(c => c.id !== id) } })) },
+    addAudioClip: (clip) => get().mutate(p => ({ ...p, audioClips: [...p.audioClips, clip] })),
+    updateAudioClip: (id, changes) => get().mutate(
+      p => ({ ...p, audioClips: p.audioClips.map(c => c.id === id ? { ...c, ...changes } : c) }),
+      true,
+    ),
+    removeAudioClip: (id) => get().mutate(p => ({ ...p, audioClips: p.audioClips.filter(c => c.id !== id) })),
 
-    addTransition: (t) => set((s) => ({ project: { ...s.project, transitions: [...s.project.transitions, t] } })),
-    removeTransition: (id) => set((s) => ({ project: { ...s.project, transitions: s.project.transitions.filter(t => t.id !== id) } })),
+    addTransition: (t) => get().mutate(p => ({ ...p, transitions: [...p.transitions, t] })),
+    removeTransition: (id) => get().mutate(p => ({ ...p, transitions: p.transitions.filter(t => t.id !== id) })),
 
-    addCaption: (c) => set((s) => ({ project: { ...s.project, captions: [...s.project.captions, c] } })),
-    updateCaption: (id, changes) => set((s) => ({ project: { ...s.project, captions: s.project.captions.map(c => c.id === id ? { ...c, ...changes } : c) } })),
-    removeCaption: (id) => set((s) => ({ project: { ...s.project, captions: s.project.captions.filter(c => c.id !== id) } })),
+    addCaption: (c) => get().mutate(p => ({ ...p, captions: [...p.captions, c] })),
+    updateCaption: (id, changes) => get().mutate(
+      p => ({ ...p, captions: p.captions.map(c => c.id === id ? { ...c, ...changes } : c) }),
+      true,
+    ),
+    removeCaption: (id) => get().mutate(p => ({ ...p, captions: p.captions.filter(c => c.id !== id) })),
 
     addTrack: (type) => {
       const track: Track = { id: crypto.randomUUID(), type, label: `${type} track`, muted: false, locked: false, height: type === 'audio' ? 48 : 64 }
-      set((s) => ({ project: { ...s.project, tracks: [...s.project.tracks, track] } }))
+      get().mutate(p => ({ ...p, tracks: [...p.tracks, track] }))
     },
-    removeTrack: (id) => set((s) => ({ project: { ...s.project, tracks: s.project.tracks.filter(t => t.id !== id) } })),
-    updateTrack: (id, changes) => set((s) => ({ project: { ...s.project, tracks: s.project.tracks.map(t => t.id === id ? { ...t, ...changes } : t) } })),
+    removeTrack: (id) => get().mutate(p => ({ ...p, tracks: p.tracks.filter(t => t.id !== id) })),
+    updateTrack: (id, changes) => get().mutate(
+      p => ({ ...p, tracks: p.tracks.map(t => t.id === id ? { ...t, ...changes } : t) }),
+      true,
+    ),
 
     setSelected: ({ clips, texts, stickers, audios }) => set({
       selectedClipIds: clips ?? [],
@@ -223,40 +252,75 @@ export const useEditorStore = create<EditorState>()(
     }),
     clearSelection: () => set({ selectedClipIds: [], selectedTextIds: [], selectedStickerIds: [], selectedAudioIds: [] }),
 
-    setProjectName: (name) => set((s) => ({ project: { ...s.project, name } })),
+    setProjectName: (name) => get().mutate(p => ({ ...p, name }), true),
     setAspectRatio: (ratio) => {
       const { width, height } = ASPECT_RATIOS[ratio]
-      set((s) => ({ project: { ...s.project, width, height } }))
+      get().mutate(p => ({ ...p, width, height }))
     },
-    setBackgroundColor: (color) => set((s) => ({ project: { ...s.project, backgroundColor: color } })),
-    setFps: (fps) => set((s) => ({ project: { ...s.project, fps } })),
+    setBackgroundColor: (color) => get().mutate(p => ({ ...p, backgroundColor: color }), true),
+    setFps: (fps) => get().mutate(p => ({ ...p, fps })),
 
     setShowExportDialog: (v) => set({ showExportDialog: v }),
     setShowProjectSettings: (v) => set({ showProjectSettings: v }),
     setIsExporting: (v) => set({ isExporting: v }),
     setExportProgress: (v) => set({ exportProgress: v }),
 
-    saveHistory: () => {
+    // Snapshots the project AFTER a mutation. historyIndex always points at the
+    // state currently on screen, so undo is a plain single step backwards.
+    // A continuous edit only merges into the previous snapshot when that snapshot
+    // was continuous too — a discrete action is never swallowed by a following drag.
+    recordHistory: (coalesce = false) => {
       const { project, history, historyIndex } = get()
-      const newHistory = history.slice(0, historyIndex + 1)
-      newHistory.push(JSON.parse(JSON.stringify(project)))
-      if (newHistory.length > 50) newHistory.shift()
-      set({ history: newHistory, historyIndex: newHistory.length - 1 })
+      const now = Date.now()
+      const next = history.slice(0, historyIndex + 1)
+      const mergeIntoPrevious = coalesce
+        && lastRecordWasContinuous
+        && next.length > 0
+        && now - lastRecordedAt < COALESCE_WINDOW_MS
+      if (mergeIntoPrevious) next[next.length - 1] = cloneProject(project)
+      else next.push(cloneProject(project))
+      while (next.length > HISTORY_LIMIT) next.shift()
+      lastRecordedAt = now
+      lastRecordWasContinuous = coalesce
+      set({ history: next, historyIndex: next.length - 1 })
+    },
+    // Single choke point for project changes: keeps duration derived and makes it
+    // impossible for an action to forget recording history.
+    mutate: (fn, coalesce = false) => {
+      set((s) => {
+        const next = fn(s.project)
+        return { project: { ...next, duration: computeDuration(next) } }
+      })
+      get().recordHistory(coalesce)
     },
     undo: () => {
       const { history, historyIndex } = get()
-      if (historyIndex < 0) return
+      if (historyIndex <= 0) return
       const newIndex = historyIndex - 1
-      set({ project: newIndex >= 0 ? history[newIndex] : createDefaultProject(), historyIndex: Math.max(-1, newIndex) })
+      lastRecordedAt = 0
+      lastRecordWasContinuous = false
+      set({ project: history[newIndex], historyIndex: newIndex })
     },
     redo: () => {
       const { history, historyIndex } = get()
       if (historyIndex >= history.length - 1) return
       const newIndex = historyIndex + 1
+      lastRecordedAt = 0
+      lastRecordWasContinuous = false
       set({ project: history[newIndex], historyIndex: newIndex })
     },
 
-    loadProject: (p) => set({ project: p, history: [], historyIndex: -1, currentTime: 0, isPlaying: false }),
-    newProject: () => set({ project: createDefaultProject(), history: [], historyIndex: -1, currentTime: 0, isPlaying: false }),
+    loadProject: (p) => {
+      const project = { ...p, duration: computeDuration(p) }
+      lastRecordedAt = 0
+      lastRecordWasContinuous = false
+      set({ project, history: [project], historyIndex: 0, currentTime: 0, isPlaying: false })
+    },
+    newProject: () => {
+      const project = createDefaultProject()
+      lastRecordedAt = 0
+      lastRecordWasContinuous = false
+      set({ project, history: [project], historyIndex: 0, currentTime: 0, isPlaying: false })
+    },
   }))
 )

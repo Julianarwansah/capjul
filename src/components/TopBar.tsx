@@ -16,7 +16,7 @@ export function TopBar() {
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState(project.name)
 
-  const canUndo = historyIndex >= 0
+  const canUndo = historyIndex > 0
   const canRedo = historyIndex < history.length - 1
 
   async function handleOpen() {

@@ -19,6 +19,9 @@ const TRACK_COLORS: Record<Track['type'], string> = {
 
 const RULER_HEIGHT = 28
 const LABEL_WIDTH = 140
+// Short and empty projects still get a usable ruler. project.duration stays the
+// real content length — this floor is display-only.
+const MIN_TIMELINE_SECONDS = 60
 
 export function Timeline() {
   const {
@@ -29,7 +32,8 @@ export function Timeline() {
   const timelineRef = useRef<HTMLDivElement>(null)
 
   const pxPerSec = zoom
-  const totalWidth = Math.max(project.duration * pxPerSec + 200, 800)
+  const timelineDuration = Math.max(project.duration, MIN_TIMELINE_SECONDS)
+  const totalWidth = Math.max(timelineDuration * pxPerSec + 200, 800)
 
   function timeToX(t: number) { return t * pxPerSec }
   function xToTime(x: number) { return Math.max(0, x / pxPerSec) }
@@ -92,7 +96,7 @@ export function Timeline() {
   function renderRuler() {
     const ticks = []
     const interval = zoom > 100 ? 1 : zoom > 50 ? 2 : zoom > 25 ? 5 : 10
-    for (let t = 0; t <= project.duration; t += interval) {
+    for (let t = 0; t <= timelineDuration; t += interval) {
       ticks.push(
         <div key={t} className="absolute flex flex-col items-start" style={{ left: timeToX(t) }}>
           <div style={{ height: t % (interval * 5) === 0 ? 10 : 6, width: 1, background: t % (interval * 5) === 0 ? '#555' : '#333' }} />
@@ -198,7 +202,7 @@ export function Timeline() {
                 onDrop={e => e.preventDefault()}
               >
                 {/* Beat lines */}
-                {Array.from({ length: Math.ceil(project.duration) }).map((_, i) => (
+                {Array.from({ length: Math.ceil(timelineDuration) }).map((_, i) => (
                   <div key={i} className="absolute top-0 bottom-0 w-px"
                     style={{ left: timeToX(i), background: i % 5 === 0 ? '#222' : '#1a1a1a' }} />
                 ))}
