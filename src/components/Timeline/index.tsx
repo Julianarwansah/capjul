@@ -1,6 +1,7 @@
-import { useRef, useMemo } from 'react'
+import { useRef, useState, useMemo } from 'react'
 import { Plus, Lock, Unlock, Volume2, VolumeX } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
+import { MEDIA_DRAG_MIME, makeAudioClipFromMedia, makeClipFromMedia } from '../../shared/clip-factory'
 import type { Clip, TextClip, AudioClip, StickerClip, Track, MediaFile } from '../../types'
 
 function formatTime(s: number) {
@@ -27,9 +28,11 @@ export function Timeline() {
   const {
     project, currentTime, setCurrentTime, zoom, setZoom,
     selectedClipIds, setSelected, updateClip, addTrack,
+    addClip, addAudioClip,
   } = useEditorStore()
 
   const timelineRef = useRef<HTMLDivElement>(null)
+  const [dropTrackId, setDropTrackId] = useState<string | null>(null)
 
   const pxPerSec = zoom
   const timelineDuration = Math.max(project.duration, MIN_TIMELINE_SECONDS)
@@ -90,6 +93,29 @@ export function Timeline() {
     }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
+  }
+
+  function isDroppableTrack(track: Track) {
+    return track.type === 'video' || track.type === 'audio'
+  }
+
+  // Drop media from the Media panel onto a track at the drop position.
+  function handleTrackDrop(e: React.DragEvent, track: Track) {
+    e.preventDefault()
+    setDropTrackId(null)
+    const mediaId = e.dataTransfer.getData(MEDIA_DRAG_MIME)
+    const media = project.media.find(m => m.id === mediaId)
+    if (!media || !timelineRef.current) return
+    const rect = timelineRef.current.getBoundingClientRect()
+    const x = e.clientX - rect.left + timelineRef.current.scrollLeft - LABEL_WIDTH
+    const startTime = xToTime(x)
+    if (track.type === 'video') {
+      const clip = makeClipFromMedia(media, track.id, startTime)
+      if (clip) addClip(clip)
+    } else if (track.type === 'audio') {
+      const audioClip = makeAudioClipFromMedia(media, track.id, startTime)
+      if (audioClip) addAudioClip(audioClip)
+    }
   }
 
   // Ruler ticks
@@ -192,14 +218,23 @@ export function Timeline() {
             {allTracks.map(track => (
               <div
                 key={track.id}
-                className="relative"
+                className={`relative${dropTrackId === track.id ? ' drag-over' : ''}`}
                 style={{
                   height: track.height,
                   borderBottom: '1px solid var(--color-border-subtle)',
                   background: 'var(--color-bg-base)',
                 }}
-                onDragOver={e => e.preventDefault()}
-                onDrop={e => e.preventDefault()}
+                onDragOver={e => {
+                  if (!isDroppableTrack(track)) return
+                  if (!e.dataTransfer.types.includes(MEDIA_DRAG_MIME)) return
+                  e.preventDefault()
+                  setDropTrackId(track.id)
+                }}
+                onDragLeave={e => {
+                  if (e.currentTarget.contains(e.relatedTarget as Node)) return
+                  setDropTrackId(cur => (cur === track.id ? null : cur))
+                }}
+                onDrop={e => handleTrackDrop(e, track)}
               >
                 {/* Beat lines */}
                 {Array.from({ length: Math.ceil(timelineDuration) }).map((_, i) => (

@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react'
 import { Upload, Search, Grid2X2, List, Film, Image, Music2, X, Plus } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
-import type { MediaFile, MediaType, Clip, FfprobeStream } from '../../types'
+import { MEDIA_DRAG_MIME, makeClipFromMedia } from '../../shared/clip-factory'
+import type { MediaFile, MediaType, FfprobeStream } from '../../types'
 
 function getMediaType(path: string): MediaType {
   const ext = path.split('.').pop()?.toLowerCase() ?? ''
@@ -65,27 +66,10 @@ export function MediaPanel() {
   }
 
   function addToTimeline(media: MediaFile) {
-    if (media.type === 'audio') return
     const mainTrack = project.tracks.find(t => t.type === 'video')
     if (!mainTrack) return
-    const clip: Clip = {
-      id: crypto.randomUUID(),
-      mediaId: media.id,
-      trackId: mainTrack.id,
-      startTime: currentTime,
-      duration: media.duration || 5,
-      mediaStart: 0,
-      mediaEnd: media.duration || 5,
-      speed: 1, volume: 1, muted: false, reversed: false, opacity: 1,
-      x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0,
-      filter: undefined,
-      brightness: 0, contrast: 0, saturation: 0,
-      exposure: 0, highlights: 0, shadows: 0,
-      temperature: 0, tint: 0, sharpness: 0,
-      chromaEnabled: false, chromaColor: '#00ff00', chromaTolerance: 0.3,
-      stabilize: false,
-    }
-    addClip(clip)
+    const clip = makeClipFromMedia(media, mainTrack.id, currentTime)
+    if (clip) addClip(clip)
   }
 
   async function handleDrop(e: React.DragEvent) {
@@ -206,6 +190,11 @@ function MediaGridItem({ media, onAdd }: { media: MediaFile; onAdd: (m: MediaFil
     <div
       className="group relative rounded overflow-hidden cursor-pointer"
       style={{ background: 'var(--color-bg-surface)', aspectRatio: '16/9' }}
+      draggable
+      onDragStart={e => {
+        e.dataTransfer.setData(MEDIA_DRAG_MIME, media.id)
+        e.dataTransfer.effectAllowed = 'copy'
+      }}
       onDoubleClick={() => onAdd(media)}
     >
       {media.type === 'video' && (
@@ -266,6 +255,11 @@ function MediaListItem({ media, onAdd }: { media: MediaFile; onAdd: (m: MediaFil
     <div
       className="flex items-center gap-2 p-2 rounded group cursor-pointer"
       style={{ background: 'var(--color-bg-surface)' }}
+      draggable
+      onDragStart={e => {
+        e.dataTransfer.setData(MEDIA_DRAG_MIME, media.id)
+        e.dataTransfer.effectAllowed = 'copy'
+      }}
       onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--color-bg-hover)'}
       onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'var(--color-bg-surface)'}
       onDoubleClick={() => onAdd(media)}
