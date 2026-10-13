@@ -100,8 +100,17 @@ Note that Vite 8 reads `build.rolldownOptions`, not `build.rollupOptions` — se
 
 ## Known gaps
 
-- **Export does not match the preview.** `buildFFmpegArgs` in `electron/main.ts` only concatenates video clips. Text, stickers, audio clips, transitions, filters, speed, volume, opacity and transform are all ignored, the `format` chosen in the export dialog never reaches FFmpeg, and any input without an audio stream makes the `concat` filter fail. This needs a real composition-to-filtergraph design, not a patch.
-- Dropping media onto a **timeline track** does not create a clip yet; only the Media panel drop zone imports files.
+The full register — with impact, estimates and an owner per item — lives in
+[`docs/tech-debt.md`](docs/tech-debt.md). The short version:
+
+- **Export does not match the preview.** Video, audio, gaps, multiple tracks, speed,
+  volume, opacity and transform now render through a compiled filtergraph, but text,
+  stickers and captions are still not exported (system FFmpeg has no `drawtext`), and
+  the `format`/parity work continues in `docs/export-pipeline-design.md`.
+- Dropping media onto a **timeline track** creates a clip; the Transitions, Effects,
+  Templates and AI panels remain UI without behavior, as do several toolbar buttons.
 - Removing a media item leaves clips that reference it orphaned.
-- `strict` mode is off in every tsconfig. Turning it on will surface errors across the existing codebase and should be done as its own pass.
-- Tests cover the editor store only. Components, the FFmpeg argument builder and the IPC layer are untested.
+- `strict` mode is off in every tsconfig. Turning it on will surface errors across the
+  existing codebase and should be done as its own pass.
+- Tests cover the store, the project codec and the render compiler. Components, the IPC
+  layer and the encoder are verified manually, not by tests.
