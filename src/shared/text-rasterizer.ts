@@ -16,7 +16,7 @@ type LetterSpacingContext = CanvasRenderingContext2D & { letterSpacing?: string 
  * -webkit-text-stroke is approximated by a centred canvas stroke of double the
  * width, and underline thickness is heuristic.
  */
-export function rasterizeTextClip(clip: TextClip, canvasW: number, canvasH: number): string {
+export function rasterizeTextClipToCanvas(clip: TextClip, canvasW: number, canvasH: number): HTMLCanvasElement {
   const canvas = document.createElement('canvas')
   canvas.width = canvasW
   canvas.height = canvasH
@@ -68,7 +68,11 @@ export function rasterizeTextClip(clip: TextClip, canvasW: number, canvasH: numb
     })
   }
 
-  return canvas.toDataURL('image/png').split(',')[1]
+  return canvas
+}
+
+export function rasterizeTextClip(clip: TextClip, canvasW: number, canvasH: number): string {
+  return rasterizeTextClipToCanvas(clip, canvasW, canvasH).toDataURL('image/png').split(',')[1]
 }
 
 /**
@@ -87,7 +91,7 @@ export function stickerPlacement(clip: StickerClip, canvasW: number, canvasH: nu
   }
 }
 
-function loadSvgImage(svgText: string): Promise<HTMLImageElement> {
+export function loadSvgImage(svgText: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.onload = () => resolve(img)

@@ -1,6 +1,10 @@
 # Export pipeline design
 
 Status: Phase 1 complete for everything except transitions and color filters.
+Phase 2 has started: the compositor core (`src/shared/scene.ts` + `src/shared/compositor.ts`)
+is implemented and pixel-verified for all four layer kinds, but nothing consumes it
+yet - the frame pump, IPC transport and rawvideo encoder wiring are the next step.
+Until then export still uses the Phase 1 filtergraph.
 Milestone 1 (`src/shared/render-plan.ts` wired through `media:export`) plus milestone 2:
 text clips and stickers are rasterized in the renderer
 (`src/shared/text-rasterizer.ts`, layout math in `src/shared/text-layout.ts`) and
