@@ -1,8 +1,11 @@
 # Export pipeline design
 
 Status: Phase 1 milestone 1 implemented (`src/shared/render-plan.ts`, wired through
-`media:export`); text/sticker overlays and the parity harness remain. Findings below
-come from two throwaway prototypes (`docs/prototypes/export-pipeline/`).
+`media:export`), and the text half of milestone 2 as well: text clips are rasterized in
+the renderer (`src/shared/text-rasterizer.ts`, layout math in `src/shared/text-layout.ts`)
+and composited as transparent PNG overlays. Sticker overlays remain blocked on the asset
+decision (D2 / F4). Findings below come from two throwaway prototypes
+(`docs/prototypes/export-pipeline/`).
 Scope: replacing `buildFFmpegArgs` in `electron/main.ts` with a real timeline compositor.
 
 ## 1. Problem statement

@@ -10,13 +10,14 @@ velocity or user trust. P3 is hygiene.
 
 ## P1
 
-### D1 — Text, sticker and caption layers are not exported
-`compileProject` emits `overlays: []`. System FFmpeg has no `drawtext`/`subtitles`/`ass`
-(Homebrew build lacks libfreetype/libass), so the rasterized-overlay path from
-`docs/export-pipeline-design.md` milestone 2 is required.
-Impact: core promise — what you see is not what you export.
-Effort: 2-3 days (rasterizer in renderer, overlay inputs, parity harness).
-Owner: next engineering slot. Blocked by D2 for stickers only; text can proceed now.
+### D1 — Sticker layers are not exported (text layers now are)
+Text clips are rasterized in the renderer and composited as PNG overlays since the
+2026-10 pass. Stickers still emit nothing: `compileProject` skips them and the export
+dialog shows a visible warning when a project contains any. System FFmpeg has no
+`drawtext`, and stickers additionally hit the canvas emoji limitation in D2.
+Impact: core promise, partially delivered.
+Effort: ~1 day once D2's asset decision lands (rasterize image assets like text PNGs).
+Owner: next engineering slot, blocked by D2.
 
 ### D2 — Stickers are emoji strings, and canvas cannot rasterize color emoji
 `StickerClip.src` holds an emoji. Measured: `fillText('⭐')` and the SVG-text route both
@@ -34,14 +35,6 @@ several others survived partly because of this.
 Impact: reliability — whole classes of null/implicit-any errors are invisible.
 Effort: 1-2 days to enable and fix what surfaces across ~4k lines.
 Owner: next engineering slot, as its own pass (not bundled with features).
-
-### D4 — No CI enforces the local gates
-`typecheck`, `lint`, `test`, `build` all exist and pass locally, but nothing runs them on
-push. This repo has already received an auto-commit and an auto-push from external
-tooling (see D9), so unverified commits can reach `main`.
-Impact: reliability — the gates are advisory.
-Effort: 2-4 hours (GitHub Actions: typecheck + lint + test + build on push).
-Owner: next engineering slot.
 
 ## P2
 
@@ -117,3 +110,5 @@ Kept here for traceability; each has a commit.
 - Preview canvas collapsed to 0x0 by invalid CSS width; text sized at ~0.6px.
 - Export swallowing failures and leaking its progress listener.
 - Concat-only export replaced by the compiled RenderPlan filtergraph.
+- Text clips now export, rasterized in the renderer and composited as PNG overlays.
+- CI workflow enforces typecheck, lint, test and build on every push and PR (was D4).
