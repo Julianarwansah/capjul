@@ -1,20 +1,7 @@
 import { useRef, useEffect, useState } from 'react'
-import {
-  Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
-  Maximize2, ZoomIn, ZoomOut, RotateCcw, ChevronLeft, ChevronRight
-} from 'lucide-react'
+import { Play, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react'
 import { useEditorStore } from '../store/editorStore'
-
-function formatTime(s: number) {
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const sec = Math.floor(s % 60)
-  const ms = Math.floor((s % 1) * 100)
-  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`
-  return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`
-}
-
-const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4]
+import { PreviewControls } from './PreviewControls'
 
 export function PreviewPanel() {
   const {
@@ -30,7 +17,6 @@ export function PreviewPanel() {
   const durationRef = useRef(project.duration)
   const [volume, setVolume] = useState(1)
   const [muted, setMuted] = useState(false)
-  const [showSpeedMenu, setShowSpeedMenu] = useState(false)
   const [previewScale, setPreviewScale] = useState(1)
   const [showGrid, setShowGrid] = useState(false)
   const [showSafeZone, setShowSafeZone] = useState(false)
@@ -263,125 +249,22 @@ export function PreviewPanel() {
         </div>
       </div>
 
-      {/* Controls */}
-      <div
-        className="shrink-0 px-4 py-2"
-        style={{ background: 'var(--color-bg-panel)', borderTop: '1px solid var(--color-border)' }}
-      >
-        {/* Progress bar */}
-        <div
-          className="h-1 rounded-full mb-3 cursor-pointer relative group"
-          style={{ background: 'var(--color-bg-hover)' }}
-          onClick={handleSeek}
-        >
-          <div
-            className="h-full rounded-full"
-            style={{ width: `${progressPct}%`, background: 'var(--color-primary)' }}
-          />
-          <div
-            className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-            style={{
-              left: `${progressPct}%`,
-              transform: 'translate(-50%, -50%)',
-              background: 'var(--color-primary)',
-            }}
-          />
-        </div>
-
-        {/* Playback controls */}
-        <div className="flex items-center gap-3">
-          {/* Time */}
-          <span className="text-xs font-mono" style={{ color: 'var(--color-text-secondary)', minWidth: 80 }}>
-            {formatTime(currentTime)}
-          </span>
-
-          {/* Main controls */}
-          <div className="flex items-center gap-1 mx-auto">
-            <CtrlBtn icon={<SkipBack size={16} />} onClick={() => setCurrentTime(0)} title="Go to start" />
-            <CtrlBtn icon={<ChevronLeft size={16} />} onClick={() => setCurrentTime(Math.max(0, currentTime - 1 / project.fps))} title="Previous frame" />
-            <button
-              onClick={handlePlayPause}
-              className="w-9 h-9 rounded-full flex items-center justify-center"
-              style={{ background: 'var(--color-primary)', color: 'white', border: 'none', cursor: 'pointer' }}
-            >
-              {isPlaying ? <Pause size={18} /> : <Play size={18} />}
-            </button>
-            <CtrlBtn icon={<ChevronRight size={16} />} onClick={() => setCurrentTime(Math.min(project.duration, currentTime + 1 / project.fps))} title="Next frame" />
-            <CtrlBtn icon={<SkipForward size={16} />} onClick={() => setCurrentTime(project.duration)} title="Go to end" />
-          </div>
-
-          {/* Right controls */}
-          <div className="flex items-center gap-2 ml-auto">
-            {/* Speed */}
-            <div className="relative">
-              <button
-                className="text-xs px-2 h-7 rounded"
-                style={{ background: 'var(--color-bg-surface)', color: 'var(--color-text-secondary)', border: 'none', cursor: 'pointer' }}
-                onClick={() => setShowSpeedMenu(v => !v)}
-              >
-                {playbackSpeed}x
-              </button>
-              {showSpeedMenu && (
-                <div
-                  className="absolute bottom-9 right-0 rounded overflow-hidden shadow-lg z-50"
-                  style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)' }}
-                >
-                  {PLAYBACK_SPEEDS.map(s => (
-                    <button
-                      key={s}
-                      onClick={() => { setPlaybackSpeed(s); setShowSpeedMenu(false) }}
-                      className="block w-full px-4 py-1.5 text-xs text-left"
-                      style={{
-                        background: playbackSpeed === s ? 'var(--color-primary)' : 'transparent',
-                        color: playbackSpeed === s ? 'white' : 'var(--color-text-secondary)',
-                        border: 'none', cursor: 'pointer',
-                      }}
-                    >
-                      {s}x
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Volume */}
-            <button
-              onClick={() => setMuted(m => !m)}
-              style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)' }}
-            >
-              {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
-            </button>
-            <input
-              type="range" min={0} max={1} step={0.01}
-              value={muted ? 0 : volume}
-              onChange={e => { setVolume(+e.target.value); if (videoRef.current) videoRef.current.volume = +e.target.value }}
-              style={{ width: 64 }}
-            />
-
-            {/* Duration */}
-            <span className="text-xs font-mono" style={{ color: 'var(--color-text-muted)', minWidth: 60 }}>
-              / {formatTime(project.duration)}
-            </span>
-
-            <CtrlBtn icon={<Maximize2 size={15} />} onClick={() => {}} title="Fullscreen" />
-          </div>
-        </div>
-      </div>
+      <PreviewControls
+        currentTime={currentTime}
+        duration={project.duration}
+        fps={project.fps}
+        isPlaying={isPlaying}
+        playbackSpeed={playbackSpeed}
+        progressPct={progressPct}
+        volume={volume}
+        muted={muted}
+        onSeek={handleSeek}
+        onPlayPause={handlePlayPause}
+        onSetCurrentTime={setCurrentTime}
+        onSetPlaybackSpeed={setPlaybackSpeed}
+        onToggleMuted={() => setMuted(m => !m)}
+        onVolume={v => { setVolume(v); if (videoRef.current) videoRef.current.volume = v }}
+      />
     </div>
-  )
-}
-
-function CtrlBtn({ icon, onClick, title }: { icon: React.ReactNode; onClick: () => void; title: string }) {
-  return (
-    <button
-      title={title}
-      onClick={onClick}
-      className="w-8 h-8 rounded flex items-center justify-center"
-      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)' }}
-      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--color-bg-hover)'}
-      onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
-    >
-      {icon}
-    </button>
   )
 }
