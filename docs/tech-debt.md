@@ -29,13 +29,6 @@ Effort: decision 0; migration to bundled image assets ~1 day (+ asset sourcing).
 Owner: **Julian** — choose the asset set and licence (Twemoji CC-BY, Noto OFL, or
 self-authored). Engineering cannot pick a licence.
 
-### D3 — `strict` is off in every tsconfig
-`tsconfig.app.json` and `tsconfig.node.json` omit `strict`. The `File.path` bug and
-several others survived partly because of this.
-Impact: reliability — whole classes of null/implicit-any errors are invisible.
-Effort: 1-2 days to enable and fix what surfaces across ~4k lines.
-Owner: next engineering slot, as its own pass (not bundled with features).
-
 ## P2
 
 ### D5 — 15 of 53 buttons do nothing
@@ -57,13 +50,6 @@ Text `shadow*`, `strokeWidth`, `letterSpacing` are emitted in px, so they do not
 with the canvas; clip color filters are a CSS filter string with no export equivalent.
 Impact: parity — exported text will not match the preview even after D1.
 Effort: folded into D1 if the parity harness is built; else 1 day.
-Owner: next engineering slot.
-
-### D8 — `removeMedia` orphans clips that reference it
-Deleting a media item leaves clips with a dangling `mediaId`; the compiler skips them
-silently, the timeline shows a nameless block.
-Impact: reliability/UX — invisible data corruption in the project.
-Effort: 2 hours (cascade delete or block with a warning).
 Owner: next engineering slot.
 
 ### D9 — External tooling commits and pushes without instruction
@@ -112,3 +98,7 @@ Kept here for traceability; each has a commit.
 - Concat-only export replaced by the compiled RenderPlan filtergraph.
 - Text clips now export, rasterized in the renderer and composited as PNG overlays.
 - CI workflow enforces typecheck, lint, test and build on every push and PR (was D4).
+- `strict: true` in both tsconfigs; the codebase turned out to be already strict-clean,
+  verified by planting an implicit-any probe and watching tsc reject it (was D3).
+- `removeMedia` now cascades to the clips and audio clips referencing it, as one undo
+  step (was D8).
