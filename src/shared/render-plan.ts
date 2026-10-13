@@ -1,4 +1,5 @@
 import type { MediaFile, Project } from './project-schema'
+import { buildFfmpegColorChain, colorAdjustFactors } from './color-adjust'
 
 // The RenderPlan is the compiled form of a Project: everything the encoder
 // needs, nothing it does not. It is plain JSON so it can be logged, snapshotted
@@ -210,13 +211,7 @@ function colorLiteral(background: string): string {
  * mid-grey-relative model as CSS.
  */
 export function colorAdjustChain(layer: RenderLayer): string[] {
-  const b = 1 + layer.brightness / 100
-  const c = 1 + layer.contrast / 100
-  const s = 1 + layer.saturation / 100
-  const chain: string[] = []
-  if (b !== 1) chain.push(`colorchannelmixer=rr=${round4(b)}:gg=${round4(b)}:bb=${round4(b)}`)
-  if (c !== 1 || s !== 1) chain.push(`eq=contrast=${round4(c)}:saturation=${round4(s)}`)
-  return chain
+  return buildFfmpegColorChain(colorAdjustFactors(layer))
 }
 
 function inputArgs(plan: RenderPlan): string[] {

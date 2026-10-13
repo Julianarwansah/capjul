@@ -20,18 +20,19 @@ Impact: user trust — the UI promises functions it does not have.
 Effort: 0.5-1 day per real feature; but first a keep/cut decision per button.
 Owner: **Julian** for keep/cut; engineering for the kept ones.
 
-### D7 — Parity: dead color fields and no pixel-diff harness
-Narrowed from its original scope. Text shadow/stroke/letter-spacing now scale with the
-canvas in the preview (cqh units), and brightness/contrast/saturation export with math
-that mirrors the preview's CSS filter string, verified by pixel-diffing real encodes.
-What remains: `exposure`, `highlights`, `shadows`, `temperature`, `tint` and `sharpness`
-are stored on every clip but used by neither the preview nor the export - dead weight
-that should be implemented or deleted, not left; and there is still no automated
-preview-vs-export pixel-diff harness (parity currently holds by construction: one
-layout module, proportional units, mirrored filter math).
-Impact: parity confidence; dead fields invite future drift.
-Effort: 0.5 day to delete the dead fields or 2-3 days to implement them; 1 day harness.
-Owner: next engineering slot for the field decision; harness deferred.
+### D7 — Parity: preset filters and grading fields remain unrendered
+The parity harness now exists as `src/shared/parity.test.ts`: structural, not
+pixel-level, because CSS and canvas rasterization will never be pixel-identical and a
+pixel diff would measure the wrong thing. It pins the shared math - one color-adjust
+source for both backends, text centring and font fraction, sticker size/centre, and the
+clip transform semantics.
+What remains: `clip.filter` preset strings (FiltersPanel) apply in the preview only, and
+`exposure`, `highlights`, `shadows`, `temperature`, `tint`, `sharpness` are stored but
+rendered nowhere (their sliders are disabled with a hint). Both belong to the Phase 2
+compositor, where curves and white balance can actually be implemented.
+Impact: parity confidence is now structural; two feature areas stay preview-only or off.
+Effort: preset filters ~0.5 day to map or drop; grading 2-3 days inside Phase 2.
+Owner: next engineering slot.
 
 ### D9 — External tooling commits and pushes without instruction
 Twice during hardening work, an unidentified tool in this environment created a commit
@@ -88,8 +89,9 @@ Kept here for traceability; each has a commit.
   through the same rasterized-overlay path as text. Legacy emoji sticker clips are
   dropped by the v2->v3 migration (was D1, D2).
 - Preview text shadow/stroke/letter-spacing scale with the canvas (cqh), and clip
-  brightness/contrast/saturation now export through colorchannelmixer + eq with the same
-  math as the preview's CSS filter string (part of D7).
+  brightness/contrast/saturation export through colorchannelmixer + eq derived from the
+  same factors module as the preview's CSS filter string. The structural parity harness
+  pins that shared math (part of D7).
 - The three over-long files are split: Timeline clip items and track labels live in
   `Timeline/ClipItems.tsx`, transport controls in `PreviewControls.tsx`, store defaults
   in `store/defaults.ts`. Every file is now under 300 lines (was D6).

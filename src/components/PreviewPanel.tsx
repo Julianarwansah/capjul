@@ -4,6 +4,7 @@ import { useEditorStore } from '../store/editorStore'
 import { PreviewControls } from './PreviewControls'
 import { STICKER_BASE_RATIO } from '../shared/sticker-assets'
 import { stickerDataUrl } from '../shared/sticker-svgs'
+import { buildCssFilter, colorAdjustFactors } from '../shared/color-adjust'
 
 export function PreviewPanel() {
   const {
@@ -88,14 +89,11 @@ export function PreviewPanel() {
   // An empty project has duration 0; guard so the bar renders 0% instead of NaN%.
   const progressPct = project.duration > 0 ? (currentTime / project.duration) * 100 : 0
 
-  // Get CSS filter for active clip
+  // Get CSS filter for active clip. The numeric adjustments come from the same
+  // factors the encoder uses; clip.filter is a preset string with no export
+  // equivalent yet (tech debt D7).
   const clipFilter = activeClip
-    ? [
-        activeClip.filter ?? '',
-        activeClip.brightness ? `brightness(${1 + activeClip.brightness / 100})` : '',
-        activeClip.contrast ? `contrast(${1 + activeClip.contrast / 100})` : '',
-        activeClip.saturation ? `saturate(${1 + activeClip.saturation / 100})` : '',
-      ].filter(Boolean).join(' ')
+    ? [activeClip.filter ?? '', buildCssFilter(colorAdjustFactors(activeClip))].filter(Boolean).join(' ')
     : ''
 
   return (
