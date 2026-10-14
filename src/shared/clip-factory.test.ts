@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { copyClipAfter, makeAudioClipFromMedia, makeClipFromMedia } from './clip-factory'
-import type { MediaFile } from './project-schema'
+import type { Keyframe, MediaFile } from './project-schema'
 
 const media = (type: MediaFile['type'], duration = 10): MediaFile => ({
   id: 'm1', path: `/tmp/a.${type === 'audio' ? 'mp3' : 'mp4'}`, name: 'a', type, duration, size: 1,
@@ -39,9 +39,9 @@ describe('copyClipAfter', () => {
   const clip = {
     id: 'orig', startTime: 2, duration: 5,
     keyframes: [
-      { id: 'k1', property: 'x', time: 2, value: 0 },
-      { id: 'k2', property: 'x', time: 7, value: 1 },
-    ],
+      { id: 'k1', property: 'x', time: 2, value: 0, easing: 'linear' },
+      { id: 'k2', property: 'x', time: 7, value: 1, easing: 'linear' },
+    ] as Keyframe[],
   }
 
   it('lands just past the original end by the default gap', () => {

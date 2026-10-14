@@ -145,6 +145,62 @@ describe('parse: v2 -> v3 sticker migration', () => {
   })
 })
 
+describe('parse: v3 -> v4 keyframe easing', () => {
+  it('gives keyframes written before easing existed the linear default', () => {
+    const v3 = {
+      app: 'capjul', schemaVersion: 3, savedAt: 1, appVersion: '0.0.0',
+      project: {
+        ...makeProject(),
+        clips: [{
+          ...clip,
+          keyframes: [
+            { id: 'k1', time: 2, property: 'x', value: 0 },
+            { id: 'k2', time: 5, property: 'x', value: 1 },
+          ],
+        }],
+      },
+    }
+    const out = parseProjectFile(JSON.stringify(v3))
+    expect(out.ok).toBe(true)
+    if (out.ok) {
+      expect(out.migratedFrom).toBe(3)
+      // 'linear' is exactly the interpolation a v3 file was authored against, so
+      // the animation is unchanged rather than merely parseable.
+      expect(out.project.clips[0].keyframes.map(k => k.easing)).toEqual(['linear', 'linear'])
+    }
+  })
+
+  it('preserves an easing value a current-version file carries', () => {
+    const current = {
+      app: 'capjul', schemaVersion: CURRENT_SCHEMA_VERSION, savedAt: 1, appVersion: '0.0.0',
+      project: {
+        ...makeProject(),
+        clips: [{
+          ...clip,
+          keyframes: [{ id: 'k1', time: 2, property: 'x', value: 0, easing: 'ease-in-out' }],
+        }],
+      },
+    }
+    const out = parseProjectFile(JSON.stringify(current))
+    expect(out.ok).toBe(true)
+    if (out.ok) {
+      expect(out.migratedFrom).toBe(null)
+      expect(out.project.clips[0].keyframes[0].easing).toBe('ease-in-out')
+    }
+  })
+
+  it('rejects an easing name it does not know rather than falling back', () => {
+    const bad = {
+      app: 'capjul', schemaVersion: CURRENT_SCHEMA_VERSION, savedAt: 1, appVersion: '0.0.0',
+      project: {
+        ...makeProject(),
+        clips: [{ ...clip, keyframes: [{ id: 'k1', time: 2, property: 'x', value: 0, easing: 'bounce' }] }],
+      },
+    }
+    expect(parseProjectFile(JSON.stringify(bad)).ok).toBe(false)
+  })
+})
+
 describe('parse: hostile keys', () => {
   it('neutralises __proto__ payloads', () => {
     // Computed keys create own properties; a literal __proto__ key would set

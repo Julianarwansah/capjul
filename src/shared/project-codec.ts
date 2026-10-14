@@ -32,6 +32,10 @@ const migrations: Record<number, (raw: Raw) => Raw> = {
       ? (raw.stickerClips as Raw[]).filter(s => typeof s?.src === 'string' && isKnownSticker(s.src))
       : [],
   }),
+  // v4 adds Keyframe.easing. There is nothing to rewrite: the field's default of
+  // 'linear' is exactly the interpolation a v3 file was authored against, so this
+  // step exists only to declare that v3 is understood rather than too old.
+  3: raw => raw,
 }
 
 /**

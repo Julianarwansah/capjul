@@ -31,19 +31,37 @@ Effort: Templates/Layers/Share are a keep-or-cut call. The audio library is a
 real feature, days not hours. Cutting the placeholders is ~1 hour.
 Owner: **Julian** for keep/cut on all seven; engineering for whatever is kept.
 
-### D7 — Parity: preset filters and grading fields remain unrendered
-The parity harness now exists as `src/shared/parity.test.ts`: structural, not
-pixel-level, because CSS and canvas rasterization will never be pixel-identical and a
-pixel diff would measure the wrong thing. It pins the shared math - one color-adjust
-source for both backends, text centring and font fraction, sticker size/centre, and the
-clip transform semantics.
-What remains: `clip.filter` preset strings (FiltersPanel) apply in the preview only, and
-`exposure`, `highlights`, `shadows`, `temperature`, `tint`, `sharpness` are stored but
-rendered nowhere (their sliders are disabled with a hint). Both belong to the Phase 2
-compositor, where curves and white balance can actually be implemented.
-Impact: parity confidence is now structural; two feature areas stay preview-only or off.
-Effort: preset filters ~0.5 day to map or drop; grading 2-3 days inside Phase 2.
-Owner: next engineering slot.
+### D7 — The six grading fields are stored but rendered nowhere
+`exposure`, `highlights`, `shadows`, `temperature`, `tint` and `sharpness` are in
+`ClipSchema`, have sliders in `RightPanel`, and are read by nothing. The sliders
+are disabled with a hint saying so (`ce098e1`), which is honest but means six
+stored fields per clip are dead weight and the panel advertises controls that do
+not exist. `colorAdjustFactors` reads only brightness, contrast and saturation.
+
+Implementing them needs a shared module in the `color-adjust.ts` mould — one
+parameter set, two backends — but neither backend can express these six with what
+is already in use. CSS and `ctx.filter` have no white balance, no split
+highlight/shadow curves and no sharpening, so the preview and compositor sides
+need SVG filters (`feColorMatrix`, `feComponentTransfer`, `feConvolveMatrix`) or
+pixel work; the ffmpeg side needs `colortemperature`/`colorbalance`, `curves` and
+`unsharp`. Keeping three expressions of one parameter set in parity is the actual
+cost, not any one of them.
+Impact: six dead fields, a panel that promises controls it does not have.
+Effort: 2-3 days. Not worth starting without deciding the parameter semantics
+first, since "highlights" and "shadows" have no single standard meaning.
+Owner: **Julian** for what the six sliders should mean; engineering after that.
+
+**Correction to the previous version of this entry.** It also claimed that
+`clip.filter` preset strings apply in the preview only. That was true when it was
+written and is not true now: `compileScene` folds `clip.filter` into the layer's
+filter string and `drawMediaLayer` applies it through `ctx.filter`, and the
+compositor is the default export engine (`ExportDialog` initialises `engine` to
+`'compositor'`). So all 24 FiltersPanel presets do export. The `filtergraph`
+fallback still drops them — `RenderLayer` carries brightness, contrast and
+saturation but no filter field — and the UI already warns about exactly that when
+the fallback engages. Mapping the CSS presets onto ffmpeg filters for the
+fallback is still ~0.5 day of work and still open; it is just much less urgent
+than "presets do not export" sounded.
 
 ### D15 — Transitions are preview-only and vanish on export
 `TransitionsPanel` creates real `project.transitions` entries, including
@@ -179,6 +197,24 @@ shortcuts already existing.
 Effort: ~1 hour, and cheaper than D14 was because `role="slider"` plus the arrow
 handling can be copied from `PreviewControls`, which already has both.
 Owner: next engineering slot.
+
+### D21 — The filtergraph engine rounds keyframe coefficients to 4 decimals
+`volumeExpression` in `render-plan.ts` passes every coefficient it emits through
+`round4`, while `interpolate` — used by the preview and the canvas compositor —
+works at full precision. A linear volume ramp therefore disagrees between the two
+engines by up to about 1.5e-4 over a three-second segment.
+
+Found by the numeric parity test added with keyframe easing, which evaluates the
+emitted ffmpeg expression and compares it to `interpolate()` sample by sample.
+The test asserts agreement to 5e-4 and documents why it cannot be tighter.
+Impact: none in practice. It is four orders of magnitude below an audible
+difference, and it only affects the `filtergraph` engine — the default
+`compositor` engine draws from `interpolate` directly and is exact.
+Effort: ~1 hour to drop `round4` from the coefficients, but it changes the
+emitted filtergraph text for every existing project, so the 28 `render-plan`
+string assertions would need updating and the output should be listened to
+before and after. Not worth doing on its own.
+Owner: unowned until it measures audible.
 
 ## Resolved during this hardening pass
 
@@ -380,3 +416,18 @@ Kept here for traceability; each has a commit.
   opening with all five entries in order, Duplikat adding a clip and dismissing
   the menu, marquee selecting and clearing its box, and zero page errors
   throughout.
+- The keyframe diamond in `RightPanel` lit up whenever a property had a keyframe
+  *anywhere*, while its title said "Hapus keyframe" — but a click with the
+  playhead between keyframes adds one instead of removing anything. It now fills
+  only when a keyframe is actually at the playhead, and shows an amber outline
+  without a fill when the property is animated elsewhere, so the two states are
+  distinguishable instead of conflated. Its accessible label names the property,
+  which it did not before: all fourteen diamonds announced identically.
+- Keyframe easing shipped (schema v4) with the curve vocabulary in
+  `shared/keyframe-easing.ts` rather than in `project-schema.ts`. That placement
+  is deliberate and load-bearing: `project-schema` imports zod, and a renderer
+  component importing the easing list from there pulled the whole validator into
+  the client bundle — measured at +26 KB gzipped, 127 → 153 KB, before it was
+  moved back out. `keyframe-easing.ts` imports nothing for that reason. If this
+  is ever "tidied" by moving the list next to the schema, check the bundle size
+  afterwards.

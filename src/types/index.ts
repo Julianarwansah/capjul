@@ -14,6 +14,7 @@ export type {
   Project,
   ProjectFile,
   Keyframe,
+  Easing,
 } from '../shared/project-schema'
 export type { FfprobeStream, FfprobeResult } from '../shared/ffprobe'
 

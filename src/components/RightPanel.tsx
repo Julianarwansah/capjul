@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useEditorStore } from '../store/editorStore'
-import type { TextClip } from '../types'
+import type { Easing, Keyframe, TextClip } from '../types'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { TEXT_IN_ANIMATIONS, TEXT_OUT_ANIMATIONS } from '../shared/text-animation'
-import { hasKeyframes } from '../shared/keyframe-interpolate'
+import { hasKeyframes, keyframeAt } from '../shared/keyframe-interpolate'
+import { EASINGS } from '../shared/keyframe-easing'
 
 const SPEED_PRESETS = [0.3, 0.5, 1, 1.5, 2, 4]
 
@@ -61,16 +62,34 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
 // nothing visible is worse than no slider, so they are disabled and say so.
 const NOT_RENDERED_HINT = 'Not rendered yet — needs the Phase 2 compositor'
 
-function KfBtn({ active, onClick, disabled, disabledHint }: {
-  active: boolean
+function KfBtn({ atPlayhead, animated, property, onClick, disabled, disabledHint }: {
+  /** A keyframe for this property sits at the playhead, so a click removes it. */
+  atPlayhead: boolean
+  /** The property has keyframes somewhere, so it is animated. */
+  animated: boolean
+  /** Named in the accessible label: without it every diamond on the panel
+   *  announces identically and none can be told apart. */
+  property: string
   onClick: () => void
   disabled?: boolean
   disabledHint?: string
 }) {
+  const label = disabled
+    ? (disabledHint ?? 'Tidak tersedia')
+    : atPlayhead
+      ? `Hapus keyframe ${property} di playhead`
+      : `Tambah keyframe ${property} di playhead`
+  // Filled means "a keyframe is here". An amber outline without a fill means
+  // "this property is animated, but not at the playhead" - the old single
+  // `active` flag conflated the two, so the title promised to delete a keyframe
+  // that a click would in fact have created.
+  const borderColor = disabled ? '#3a3a3a' : atPlayhead || animated ? '#f59e0b' : '#555'
   return (
     <button
       onClick={disabled ? undefined : onClick}
-      title={disabled ? disabledHint : active ? 'Hapus keyframe' : 'Tambah keyframe di sini'}
+      title={label}
+      aria-label={label}
+      aria-pressed={atPlayhead}
       style={{
         width: 14, height: 14, border: 'none', cursor: disabled ? 'not-allowed' : 'pointer', padding: 0,
         background: 'transparent', flexShrink: 0,
@@ -80,11 +99,65 @@ function KfBtn({ active, onClick, disabled, disabledHint }: {
       <div style={{
         width: 8, height: 8,
         transform: 'rotate(45deg)',
-        background: active ? '#f59e0b' : 'transparent',
-        border: `1.5px solid ${disabled ? '#3a3a3a' : active ? '#f59e0b' : '#555'}`,
+        background: atPlayhead ? '#f59e0b' : 'transparent',
+        border: `1.5px solid ${borderColor}`,
         borderRadius: 1,
       }} />
     </button>
+  )
+}
+
+const EASING_LABELS: Record<Easing, string> = {
+  'linear': 'Linear',
+  'ease-in': 'Ease in',
+  'ease-out': 'Ease out',
+  'ease-in-out': 'Ease in-out',
+}
+
+/**
+ * The keyframe diamond, plus the curve selector that appears only while a
+ * keyframe for this property sits at the playhead - which is the only moment
+ * there is a keyframe to choose a curve for.
+ *
+ * The chosen easing governs the segment *leaving* this keyframe.
+ */
+function KfControl({ kfs, property, value, onToggle, onEasing, disabled, disabledHint }: {
+  kfs: Keyframe[]
+  property: string
+  value: number
+  onToggle: (property: string, value: number) => void
+  onEasing: (kf: Keyframe, easing: Easing) => void
+  disabled?: boolean
+  disabledHint?: string
+}) {
+  const currentTime = useEditorStore(s => s.currentTime)
+  const atPlayhead = keyframeAt(kfs, property, currentTime)
+  return (
+    <div className="flex items-center gap-1" style={{ flexShrink: 0 }}>
+      {atPlayhead && !disabled && (
+        <select
+          value={atPlayhead.easing}
+          onChange={e => onEasing(atPlayhead, e.target.value as Easing)}
+          aria-label={`Kurva ${property} menuju keyframe berikutnya`}
+          title="Kurva menuju keyframe berikutnya"
+          style={{
+            height: 18, fontSize: 9, padding: '0 2px', maxWidth: 78,
+            background: 'var(--color-bg-surface)', color: 'var(--color-text-secondary)',
+            border: '1px solid var(--color-border)', borderRadius: 3, cursor: 'pointer',
+          }}
+        >
+          {EASINGS.map(e => <option key={e} value={e}>{EASING_LABELS[e]}</option>)}
+        </select>
+      )}
+      <KfBtn
+        atPlayhead={!!atPlayhead}
+        animated={hasKeyframes(kfs, property)}
+        property={property}
+        onClick={() => onToggle(property, value)}
+        disabled={disabled}
+        disabledHint={disabledHint}
+      />
+    </div>
   )
 }
 
@@ -184,37 +257,42 @@ export function RightPanel() {
         // keyframe helper instead of each defining their own.
         const kfs = selectedClip.keyframes ?? []
         const toggleKf = (prop: string, value: number) => {
-          const atTime = kfs.find(k => k.property === prop && Math.abs(k.time - currentTime) < 0.05)
+          const atTime = keyframeAt(kfs, prop, currentTime)
           if (atTime) removeClipKeyframe(selectedClip.id, atTime.id)
-          else addClipKeyframe(selectedClip.id, { id: crypto.randomUUID(), time: currentTime, property: prop, value })
+          else addClipKeyframe(selectedClip.id, { id: crypto.randomUUID(), time: currentTime, property: prop, value, easing: 'linear' })
         }
+        // addClipKeyframe replaces any keyframe for the same property at the same
+        // instant, so re-adding the existing one with a new curve rewrites it in
+        // place and stays a single undo step.
+        const setKfEasing = (kf: Keyframe, easing: Easing) =>
+          addClipKeyframe(selectedClip.id, { ...kf, easing })
         return (
         <>
           <Section title="Transform">
                 <>
                   <div className="flex items-center gap-1 mb-2">
                     <div className="flex-1"><Slider label="Opacity" value={Math.round(selectedClip.opacity * 100)} min={0} max={100} onChange={v => updateClip(selectedClip.id, { opacity: v / 100 })} /></div>
-                    <KfBtn active={hasKeyframes(kfs, 'opacity')} onClick={() => toggleKf('opacity', selectedClip.opacity)} />
+                    <KfControl kfs={kfs} property="opacity" value={selectedClip.opacity} onToggle={toggleKf} onEasing={setKfEasing} />
                   </div>
                   <div className="flex items-center gap-1 mb-2">
                     <div className="flex-1"><Slider label="Scale X" value={Math.round(selectedClip.scaleX * 100)} min={10} max={300} onChange={v => updateClip(selectedClip.id, { scaleX: v / 100 })} /></div>
-                    <KfBtn active={hasKeyframes(kfs, 'scaleX')} onClick={() => toggleKf('scaleX', selectedClip.scaleX)} />
+                    <KfControl kfs={kfs} property="scaleX" value={selectedClip.scaleX} onToggle={toggleKf} onEasing={setKfEasing} />
                   </div>
                   <div className="flex items-center gap-1 mb-2">
                     <div className="flex-1"><Slider label="Scale Y" value={Math.round(selectedClip.scaleY * 100)} min={10} max={300} onChange={v => updateClip(selectedClip.id, { scaleY: v / 100 })} /></div>
-                    <KfBtn active={hasKeyframes(kfs, 'scaleY')} onClick={() => toggleKf('scaleY', selectedClip.scaleY)} />
+                    <KfControl kfs={kfs} property="scaleY" value={selectedClip.scaleY} onToggle={toggleKf} onEasing={setKfEasing} />
                   </div>
                   <div className="flex items-center gap-1 mb-2">
                     <div className="flex-1"><Slider label="Rotation" value={selectedClip.rotation} min={-180} max={180} onChange={v => updateClip(selectedClip.id, { rotation: v })} /></div>
-                    <KfBtn active={hasKeyframes(kfs, 'rotation')} onClick={() => toggleKf('rotation', selectedClip.rotation)} />
+                    <KfControl kfs={kfs} property="rotation" value={selectedClip.rotation} onToggle={toggleKf} onEasing={setKfEasing} />
                   </div>
                   <div className="flex items-center gap-1 mb-2">
                     <div className="flex-1"><Slider label="Position X" value={Math.round(selectedClip.x * 100)} min={-100} max={100} onChange={v => updateClip(selectedClip.id, { x: v / 100 })} /></div>
-                    <KfBtn active={hasKeyframes(kfs, 'x')} onClick={() => toggleKf('x', selectedClip.x)} />
+                    <KfControl kfs={kfs} property="x" value={selectedClip.x} onToggle={toggleKf} onEasing={setKfEasing} />
                   </div>
                   <div className="flex items-center gap-1 mb-2">
                     <div className="flex-1"><Slider label="Position Y" value={Math.round(selectedClip.y * 100)} min={-100} max={100} onChange={v => updateClip(selectedClip.id, { y: v / 100 })} /></div>
-                    <KfBtn active={hasKeyframes(kfs, 'y')} onClick={() => toggleKf('y', selectedClip.y)} />
+                    <KfControl kfs={kfs} property="y" value={selectedClip.y} onToggle={toggleKf} onEasing={setKfEasing} />
                   </div>
                 </>
           </Section>
@@ -256,7 +334,9 @@ export function RightPanel() {
                 <div className="flex items-center gap-1">
                   <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{selectedClip.speed}x</span>
                   <KfBtn
-                    active={false}
+                    atPlayhead={false}
+                    animated={false}
+                    property="speed"
                     disabled
                     disabledHint="Keyframe kecepatan belum didukung: speed ramp butuh integrasi kecepatan terhadap waktu"
                     onClick={() => {}}
@@ -373,19 +453,21 @@ export function RightPanel() {
             {(() => {
               const kfs = selectedText.keyframes ?? []
               const toggleKf = (prop: string, value: number) => {
-                const atTime = kfs.find(k => k.property === prop && Math.abs(k.time - currentTime) < 0.05)
+                const atTime = keyframeAt(kfs, prop, currentTime)
                 if (atTime) removeTextKeyframe(selectedText.id, atTime.id)
-                else addTextKeyframe(selectedText.id, { id: crypto.randomUUID(), time: currentTime, property: prop, value })
+                else addTextKeyframe(selectedText.id, { id: crypto.randomUUID(), time: currentTime, property: prop, value, easing: 'linear' })
               }
+              const setKfEasing = (kf: Keyframe, easing: Easing) =>
+                addTextKeyframe(selectedText.id, { ...kf, easing })
               return (
                 <>
                   <div className="flex items-center gap-1 mb-2">
                     <div className="flex-1"><Slider label="Rotation" value={selectedText.rotation} min={-180} max={180} onChange={v => updateTextClip(selectedText.id, { rotation: v })} /></div>
-                    <KfBtn active={hasKeyframes(kfs, 'rotation')} onClick={() => toggleKf('rotation', selectedText.rotation)} />
+                    <KfControl kfs={kfs} property="rotation" value={selectedText.rotation} onToggle={toggleKf} onEasing={setKfEasing} />
                   </div>
                   <div className="flex items-center gap-1 mb-2">
                     <div className="flex-1"><Slider label="Scale" value={Math.round(selectedText.scaleX * 100)} min={10} max={300} onChange={v => updateTextClip(selectedText.id, { scaleX: v / 100, scaleY: v / 100 })} /></div>
-                    <KfBtn active={hasKeyframes(kfs, 'scaleX')} onClick={() => toggleKf('scaleX', selectedText.scaleX)} />
+                    <KfControl kfs={kfs} property="scaleX" value={selectedText.scaleX} onToggle={toggleKf} onEasing={setKfEasing} />
                   </div>
                   <Slider label="Letter Spacing" value={selectedText.letterSpacing} min={-10} max={50}
                     onChange={v => updateTextClip(selectedText.id, { letterSpacing: v })} />
@@ -466,14 +548,16 @@ export function RightPanel() {
       {selectedAudio && (() => {
         const audioKfs = selectedAudio.keyframes ?? []
         const toggleAudioKf = (prop: string, fallback: number) => {
-          const existing = audioKfs.find(k => k.property === prop && Math.abs(k.time - currentTime) < 0.05)
+          const existing = keyframeAt(audioKfs, prop, currentTime)
           if (existing) {
             removeAudioKeyframe(selectedAudio.id, existing.id)
           } else {
             const nearest = [...audioKfs].filter(k => k.property === prop).sort((a, b) => Math.abs(a.time - currentTime) - Math.abs(b.time - currentTime))[0]
-            addAudioKeyframe(selectedAudio.id, { id: crypto.randomUUID(), time: currentTime, property: prop, value: nearest?.value ?? fallback })
+            addAudioKeyframe(selectedAudio.id, { id: crypto.randomUUID(), time: currentTime, property: prop, value: nearest?.value ?? fallback, easing: 'linear' })
           }
         }
+        const setAudioKfEasing = (kf: Keyframe, easing: Easing) =>
+          addAudioKeyframe(selectedAudio.id, { ...kf, easing })
         return (
         <>
           <Section title="Volume & Playback">
@@ -482,7 +566,7 @@ export function RightPanel() {
                 <Slider label="Volume" value={Math.round(selectedAudio.volume * 100)} min={0} max={200}
                   onChange={v => updateAudioClip(selectedAudio.id, { volume: v / 100 })} />
               </div>
-              <KfBtn active={hasKeyframes(audioKfs, 'volume')} onClick={() => toggleAudioKf('volume', selectedAudio.volume)} />
+              <KfControl kfs={audioKfs} property="volume" value={selectedAudio.volume} onToggle={toggleAudioKf} onEasing={setAudioKfEasing} />
             </div>
             <div className="mb-1">
               <div className="flex justify-between mb-1">
@@ -530,37 +614,39 @@ export function RightPanel() {
       {selectedSticker && (() => {
         const kfs = selectedSticker.keyframes ?? []
         const toggleKf = (prop: string, value: number) => {
-          const atTime = kfs.find(k => k.property === prop && Math.abs(k.time - currentTime) < 0.05)
+          const atTime = keyframeAt(kfs, prop, currentTime)
           if (atTime) removeStickerKeyframe(selectedSticker.id, atTime.id)
-          else addStickerKeyframe(selectedSticker.id, { id: crypto.randomUUID(), time: currentTime, property: prop, value })
+          else addStickerKeyframe(selectedSticker.id, { id: crypto.randomUUID(), time: currentTime, property: prop, value, easing: 'linear' })
         }
+        const setKfEasing = (kf: Keyframe, easing: Easing) =>
+          addStickerKeyframe(selectedSticker.id, { ...kf, easing })
         return (
         <>
           <Section title="Transform">
             <div className="flex items-center gap-1 mb-2">
               <div className="flex-1"><Slider label="Opacity" value={Math.round(selectedSticker.opacity * 100)} min={0} max={100}
                 onChange={v => updateStickerClip(selectedSticker.id, { opacity: v / 100 })} /></div>
-              <KfBtn active={hasKeyframes(kfs, 'opacity')} onClick={() => toggleKf('opacity', selectedSticker.opacity)} />
+              <KfControl kfs={kfs} property="opacity" value={selectedSticker.opacity} onToggle={toggleKf} onEasing={setKfEasing} />
             </div>
             <div className="flex items-center gap-1 mb-2">
               <div className="flex-1"><Slider label="Scale" value={Math.round(selectedSticker.scaleX * 100)} min={10} max={400}
                 onChange={v => updateStickerClip(selectedSticker.id, { scaleX: v / 100, scaleY: v / 100 })} /></div>
-              <KfBtn active={hasKeyframes(kfs, 'scaleX')} onClick={() => toggleKf('scaleX', selectedSticker.scaleX)} />
+              <KfControl kfs={kfs} property="scaleX" value={selectedSticker.scaleX} onToggle={toggleKf} onEasing={setKfEasing} />
             </div>
             <div className="flex items-center gap-1 mb-2">
               <div className="flex-1"><Slider label="Rotation" value={selectedSticker.rotation} min={-180} max={180}
                 onChange={v => updateStickerClip(selectedSticker.id, { rotation: v })} /></div>
-              <KfBtn active={hasKeyframes(kfs, 'rotation')} onClick={() => toggleKf('rotation', selectedSticker.rotation)} />
+              <KfControl kfs={kfs} property="rotation" value={selectedSticker.rotation} onToggle={toggleKf} onEasing={setKfEasing} />
             </div>
             <div className="flex items-center gap-1 mb-2">
               <div className="flex-1"><Slider label="Position X" value={Math.round(selectedSticker.x * 100)} min={-100} max={100}
                 onChange={v => updateStickerClip(selectedSticker.id, { x: v / 100 })} /></div>
-              <KfBtn active={hasKeyframes(kfs, 'x')} onClick={() => toggleKf('x', selectedSticker.x)} />
+              <KfControl kfs={kfs} property="x" value={selectedSticker.x} onToggle={toggleKf} onEasing={setKfEasing} />
             </div>
             <div className="flex items-center gap-1 mb-2">
               <div className="flex-1"><Slider label="Position Y" value={Math.round(selectedSticker.y * 100)} min={-100} max={100}
                 onChange={v => updateStickerClip(selectedSticker.id, { y: v / 100 })} /></div>
-              <KfBtn active={hasKeyframes(kfs, 'y')} onClick={() => toggleKf('y', selectedSticker.y)} />
+              <KfControl kfs={kfs} property="y" value={selectedSticker.y} onToggle={toggleKf} onEasing={setKfEasing} />
             </div>
           </Section>
         </>

@@ -44,8 +44,18 @@ export function splitKeyframes(keyframes: Keyframe[], splitTime: number): [Keyfr
   for (const property of new Set(keyframes.map(k => k.property))) {
     if (atCut.some(k => k.property === property)) continue
     const value = interpolate(keyframes, property, splitTime, 0)
-    first.push({ id: crypto.randomUUID(), time: splitTime, property, value })
-    second.push({ id: crypto.randomUUID(), time: splitTime, property, value })
+    // The synthesized point opens the tail half's first segment, so it inherits
+    // the easing of the keyframe that opened the segment being cut. The curve
+    // cannot survive the cut exactly - easing is not affine-invariant over a
+    // sub-interval - but inheriting it keeps the character of the move instead of
+    // silently flattening it to linear.
+    const outgoing = keyframes
+      .filter(k => k.property === property && k.time < splitTime)
+      .sort((a, b) => a.time - b.time)
+      .pop()
+    const easing = outgoing?.easing ?? 'linear'
+    first.push({ id: crypto.randomUUID(), time: splitTime, property, value, easing })
+    second.push({ id: crypto.randomUUID(), time: splitTime, property, value, easing })
   }
 
   return [first, second]

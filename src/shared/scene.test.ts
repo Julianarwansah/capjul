@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { clipTransformAt, compileScene, isActiveAt, mediaTimeAt, stickerTransformAt, textTransformAt, transformAt } from './scene'
-import type { Clip, Project, StickerClip, TextClip } from './project-schema'
+import type { Clip, Keyframe, Project, StickerClip, TextClip } from './project-schema'
 
 function clip(over: Partial<Clip> = {}): Clip {
   return {
@@ -85,9 +85,9 @@ describe('compileScene', () => {
   })
 
   it('carries clip keyframes onto the layer, so export animates the pose preview shows', () => {
-    const kfs = [
-      { id: 'k1', time: 0, property: 'x', value: -0.5 },
-      { id: 'k2', time: 2, property: 'x', value: 0.5 },
+    const kfs: Keyframe[] = [
+      { id: 'k1', time: 0, property: 'x', value: -0.5, easing: 'linear' },
+      { id: 'k2', time: 2, property: 'x', value: 0.5, easing: 'linear' },
     ]
     const scene = compileScene(project({ clips: [clip({ keyframes: kfs })] }))
     const layer = scene.layers[0]
@@ -120,25 +120,25 @@ describe('transformAt', () => {
   })
 
   it('interpolates linearly between two keyframes', () => {
-    const kfs = [
-      { id: 'a', time: 1, property: 'x', value: -0.4 },
-      { id: 'b', time: 3, property: 'x', value: 0.4 },
+    const kfs: Keyframe[] = [
+      { id: 'a', time: 1, property: 'x', value: -0.4, easing: 'linear' },
+      { id: 'b', time: 3, property: 'x', value: 0.4, easing: 'linear' },
     ]
     expect(transformAt(kfs, base, 2).x).toBeCloseTo(0)
     expect(transformAt(kfs, base, 1.5).x).toBeCloseTo(-0.2)
   })
 
   it('holds the first and last value outside the keyframed range', () => {
-    const kfs = [
-      { id: 'a', time: 1, property: 'opacity', value: 0 },
-      { id: 'b', time: 2, property: 'opacity', value: 1 },
+    const kfs: Keyframe[] = [
+      { id: 'a', time: 1, property: 'opacity', value: 0, easing: 'linear' },
+      { id: 'b', time: 2, property: 'opacity', value: 1, easing: 'linear' },
     ]
     expect(transformAt(kfs, base, 0).opacity).toBe(0)
     expect(transformAt(kfs, base, 9).opacity).toBe(1)
   })
 
   it('leaves properties without a keyframe at their base value', () => {
-    const tr = transformAt([{ id: 'a', time: 0, property: 'x', value: 0.9 }], base, 0)
+    const tr = transformAt([{ id: 'a', time: 0, property: 'x', value: 0.9, easing: 'linear' }], base, 0)
     expect(tr.x).toBe(0.9)
     expect(tr.y).toBe(base.y)
     expect(tr.scaleX).toBe(base.scaleX)
@@ -154,9 +154,9 @@ describe('textTransformAt', () => {
   })
 
   it('interpolates a keyframed rotation while the rest stays at the clip value', () => {
-    const kfs = [
-      { id: 'a', time: 0, property: 'rotation', value: 0 },
-      { id: 'b', time: 2, property: 'rotation', value: 90 },
+    const kfs: Keyframe[] = [
+      { id: 'a', time: 0, property: 'rotation', value: 0, easing: 'linear' },
+      { id: 'b', time: 2, property: 'rotation', value: 90, easing: 'linear' },
     ]
     const tr = textTransformAt(text({ x: 0.4, rotation: 0, keyframes: kfs }), 1)
     expect(tr.rotation).toBeCloseTo(45)
@@ -171,9 +171,9 @@ describe('stickerTransformAt', () => {
   })
 
   it('interpolates a keyframed position', () => {
-    const kfs = [
-      { id: 'a', time: 2, property: 'x', value: 0 },
-      { id: 'b', time: 4, property: 'x', value: 1 },
+    const kfs: Keyframe[] = [
+      { id: 'a', time: 2, property: 'x', value: 0, easing: 'linear' },
+      { id: 'b', time: 4, property: 'x', value: 1, easing: 'linear' },
     ]
     expect(stickerTransformAt(sticker({ keyframes: kfs }), 3).x).toBeCloseTo(0.5)
   })
@@ -204,8 +204,8 @@ describe('clipTransformAt', () => {
     const c = clip({
       x: 0, y: 0.4, scaleX: 1, scaleY: 1, rotation: 0, opacity: 1,
       keyframes: [
-        { id: 'a', property: 'x', time: 0, value: 0 },
-        { id: 'b', property: 'x', time: 2, value: 1 },
+        { id: 'a', property: 'x', time: 0, value: 0, easing: 'linear' },
+        { id: 'b', property: 'x', time: 2, value: 1, easing: 'linear' },
       ],
     })
     expect(clipTransformAt(c, 1)).toEqual({

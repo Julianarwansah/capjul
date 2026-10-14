@@ -411,8 +411,8 @@ describe('splitAtPlayhead', () => {
     const clip = makeClip({
       startTime: 0, duration: 10,
       keyframes: [
-        { id: 'k1', property: 'x', time: 0, value: 0 },
-        { id: 'k2', property: 'x', time: 10, value: 100 },
+        { id: 'k1', property: 'x', time: 0, value: 0, easing: 'linear' },
+        { id: 'k2', property: 'x', time: 10, value: 100, easing: 'linear' },
       ],
     })
     s().addClip(clip)
@@ -457,8 +457,8 @@ describe('duplicateSelection', () => {
     const clip = makeClip({
       startTime: 0, duration: 5,
       keyframes: [
-        { id: 'k1', property: 'x', time: 0, value: 0 },
-        { id: 'k2', property: 'x', time: 5, value: 1 },
+        { id: 'k1', property: 'x', time: 0, value: 0, easing: 'linear' },
+        { id: 'k2', property: 'x', time: 5, value: 1, easing: 'linear' },
       ],
     })
     s().addClip(clip)

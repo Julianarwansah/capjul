@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { canSplitAt, splitClipAt, splitKeyframes } from './clip-split'
 import { interpolate } from './keyframe-interpolate'
-import type { Keyframe } from './project-schema'
+import type { Easing, Keyframe } from './project-schema'
 
-function kf(property: string, time: number, value: number, id = `${property}-${time}`): Keyframe {
-  return { id, property, time, value }
+function kf(
+  property: string, time: number, value: number,
+  id = `${property}-${time}`, easing: Easing = 'linear',
+): Keyframe {
+  return { id, property, time, value, easing }
 }
 
 /** A clip kind with no media window, like text or a sticker. */
@@ -140,5 +143,43 @@ describe('splitKeyframes', () => {
     )!
     expect(interpolate(first.keyframes, 'x', 2.5, -1)).toBe(25)
     expect(interpolate(second.keyframes, 'x', 7.5, -1)).toBe(75)
+  })
+})
+
+describe('splitKeyframes and easing', () => {
+  it('gives the tail half the easing of the segment being cut', () => {
+    // The synthesized point at the cut opens the tail half's first segment, so it
+    // inherits the curve. Keeping 'linear' instead would silently flatten an
+    // animation the user had shaped, every time they split it.
+    const keyframes = [
+      kf('x', 0, 0, 'a', 'ease-in-out'),
+      kf('x', 10, 100, 'b', 'linear'),
+    ]
+    const [first, second] = splitKeyframes(keyframes, 5)
+    expect(second.find(k => k.time === 5)?.easing).toBe('ease-in-out')
+    expect(first.find(k => k.time === 5)?.easing).toBe('ease-in-out')
+  })
+
+  it('keeps an existing keyframe easing when the cut lands exactly on one', () => {
+    const [first, second] = splitKeyframes([kf('x', 5, 50, 'a', 'ease-out')], 5)
+    expect(first.find(k => k.time === 5)?.easing).toBe('ease-out')
+    expect(second.find(k => k.time === 5)?.easing).toBe('ease-out')
+  })
+
+  it('falls back to linear when nothing precedes the cut for that property', () => {
+    const [, second] = splitKeyframes([kf('x', 6, 0, 'a', 'ease-in')], 5)
+    expect(second.find(k => k.time === 5)?.easing).toBe('linear')
+  })
+
+  it('carries each property easing independently', () => {
+    const keyframes = [
+      kf('x', 0, 0, 'x1', 'ease-in'),
+      kf('x', 10, 100, 'x2', 'linear'),
+      kf('opacity', 0, 0, 'o1', 'ease-out'),
+      kf('opacity', 10, 1, 'o2', 'linear'),
+    ]
+    const [, second] = splitKeyframes(keyframes, 5)
+    expect(second.find(k => k.property === 'x' && k.time === 5)?.easing).toBe('ease-in')
+    expect(second.find(k => k.property === 'opacity' && k.time === 5)?.easing).toBe('ease-out')
   })
 })

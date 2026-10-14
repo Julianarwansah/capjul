@@ -3,10 +3,13 @@ import { buildCssFilter, buildFfmpegColorChain, colorAdjustFactors } from './col
 import { layoutText } from './text-layout'
 import { stickerPlacement } from './text-rasterizer'
 import { STICKER_BASE_RATIO } from './sticker-assets'
-import { overlayOrigin, type RenderLayer } from './render-plan'
+import { overlayOrigin, volumeExpression, type RenderLayer } from './render-plan'
+import { interpolate } from './keyframe-interpolate'
+import { evalFfmpegExpression } from './ffmpeg-expr'
 import { POSE_TRANSFORM_ORDER, clipTransformAt, compileScene, poseTransformCss, textTransformAt, transformAt } from './scene'
 import type { SceneImageLayer, SceneTransform, SceneVideoLayer } from './scene'
-import type { Clip, MediaFile, Project, StickerClip, TextClip } from './project-schema'
+import type { Clip, Keyframe, MediaFile, Project, StickerClip, TextClip } from './project-schema'
+import { EASINGS, type Easing } from './keyframe-easing'
 
 // Parity here is structural, not pixel-level: CSS rasterization and canvas
 // rasterization will never be pixel-identical, so a pixel diff would measure
@@ -75,7 +78,7 @@ describe('text parity', () => {
     expect(layout.boxY + layout.boxH / 2).toBeCloseTo(0)
 
     // drawText then translates by (x*W, y*H), so a keyframed x moves the box.
-    const kfs = [{ id: 'k', time: 0, property: 'x', value: 0.9 }]
+    const kfs: Keyframe[] = [{ id: 'k', time: 0, property: 'x', value: 0.9, easing: 'linear' }]
     const tr = textTransformAt({ ...clip, keyframes: kfs }, 0)
     expect(tr.x * W).toBeCloseTo(0.9 * W)
     expect(tr.y * H).toBeCloseTo(clip.y * H)
@@ -156,10 +159,10 @@ describe('media layer pose parity', () => {
   })
 
   const POSE = { x: 0.2, y: -0.15, scaleX: 1.5, scaleY: 0.5, rotation: 30, opacity: 0.7 }
-  const KEYFRAMES = [
-    { id: 'k1', property: 'x', time: 0, value: -0.4 },
-    { id: 'k2', property: 'x', time: 4, value: 0.4 },
-    { id: 'k3', property: 'opacity', time: 2, value: 0.1 },
+  const KEYFRAMES: Keyframe[] = [
+    { id: 'k1', property: 'x', time: 0, value: -0.4, easing: 'linear' },
+    { id: 'k2', property: 'x', time: 4, value: 0.4, easing: 'linear' },
+    { id: 'k3', property: 'opacity', time: 2, value: 0.1, easing: 'linear' },
   ]
 
   it('compiles image and video layers through the same base shape', () => {
@@ -289,5 +292,59 @@ describe('pose transform order parity', () => {
     const unrotated: SceneTransform = { ...POSE, rotation: 0 }
     const swapped = mul(mul(translate(unrotated.x * W, unrotated.y * H), scale(unrotated.scaleX, unrotated.scaleY)), rotate(unrotated.rotation))
     expectClose(swapped, canvasMatrix(unrotated))
+  })
+})
+
+describe('volume keyframe parity across backends', () => {
+  // The preview and the canvas compositor resolve audio volume through
+  // interpolate(). The filtergraph engine resolves it through the expression
+  // volumeExpression() emits, which ffmpeg evaluates per frame. Two different
+  // evaluators, one curve - so the emitted string is evaluated here and compared
+  // sample by sample rather than trusted to look right.
+  const START = 1
+  const FALLBACK = 0.5
+
+  const volumeKfs = (easing: Easing): Keyframe[] => [
+    { id: 'a', time: 1, property: 'volume', value: 0.2, easing },
+    { id: 'b', time: 4, property: 'volume', value: 0.9, easing: 'linear' },
+    { id: 'c', time: 6, property: 'volume', value: 0.4, easing: 'linear' },
+  ]
+
+  for (const easing of EASINGS) {
+    it(`matches interpolate() sample by sample under ${easing}`, () => {
+      const kfs = volumeKfs(easing)
+      const expression = volumeExpression(kfs, FALLBACK, START)
+      // Spans before the first keyframe, across both segments, and past the
+      // last one, so the clamped ends are checked too.
+      for (let i = 0; i <= 220; i++) {
+        const timeline = 0.5 + (6.5 * i) / 220
+        const expected = interpolate(kfs, 'volume', timeline, FALLBACK)
+        // Stream time is timeline time minus the entry's start.
+        const actual = evalFfmpegExpression(expression, { t: timeline - START })
+        // volumeExpression rounds its emitted coefficients to 4 decimals, so a
+        // linear segment's slope carries up to 5e-5 of error which grows across
+        // the segment - about 1.5e-4 over these three seconds. That is a
+        // pre-existing property of the filtergraph engine, not something easing
+        // introduced, and it is orders of magnitude below an audible difference.
+        // The curve table itself is pinned to 1e-9 in keyframe-easing.test.ts.
+        expect(Math.abs(actual - expected)).toBeLessThan(5e-4)
+      }
+    })
+  }
+
+  it('keeps the linear expression byte-identical to the pre-easing form', () => {
+    // Existing projects must not have their filtergraph change shape just
+    // because easing exists now.
+    const kfs = volumeKfs('linear')
+    expect(volumeExpression(kfs, FALLBACK, START)).toBe(
+      'if(lt(t,0),0.2,if(lt(t,3),0.2+(t-0)*0.2333,if(lt(t,5),0.9+(t-3)*-0.25,0.4)))',
+    )
+  })
+
+  it('does not leak easing into a property the filtergraph cannot express', () => {
+    // Only volume reaches ffmpeg as an expression; every other property is drawn
+    // by the compositor through interpolate(), so a single curve table covers it.
+    const kfs: Keyframe[] = [{ id: 'a', time: 0, property: 'x', value: 0, easing: 'ease-in-out' }]
+    expect(volumeExpression(kfs, FALLBACK, 0)).toBe(String(FALLBACK))
   })
 })

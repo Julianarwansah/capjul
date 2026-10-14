@@ -1,5 +1,6 @@
 import type { Keyframe, MediaFile, Project } from './project-schema'
 import { buildFfmpegColorChain, colorAdjustFactors } from './color-adjust'
+import { easeFfmpeg } from './keyframe-easing'
 
 // The RenderPlan is the compiled form of a Project: everything the encoder
 // needs, nothing it does not. It is plain JSON so it can be logged, snapshotted
@@ -302,21 +303,32 @@ export function audibleAudio(inputs: RenderInput[], audio: RenderAudio[]): Rende
 }
 
 /**
- * Piecewise-linear volume over stream time, matching the preview's
- * interpolate() at the same timeline instants. Stream time is timeline time
- * minus the entry's start: adelay shifts the stream onto the timeline one-to-one,
- * whatever the speed.
+ * Volume over stream time, matching the preview's interpolate() at the same
+ * timeline instants. Stream time is timeline time minus the entry's start:
+ * adelay shifts the stream onto the timeline one-to-one, whatever the speed.
+ *
+ * A linear segment stays in slope form, which is shorter and is byte-identical
+ * to what every pre-v4 project produced. An eased segment goes through
+ * easeFfmpeg, the same curve table the preview uses.
  */
 export function volumeExpression(keyframes: Keyframe[], fallback: number, start: number): string {
   const pts = keyframes
     .filter(k => k.property === 'volume')
     .sort((a, b) => a.time - b.time)
-    .map(k => ({ t: round4(k.time - start), v: round4(k.value) }))
+    .map(k => ({ t: round4(k.time - start), v: round4(k.value), easing: k.easing }))
   if (pts.length === 0) return String(round4(fallback))
   let expr = String(pts[pts.length - 1].v)
   for (let i = pts.length - 2; i >= 0; i--) {
     const a = pts[i], b = pts[i + 1]
-    const seg = b.t === a.t ? String(b.v) : `${a.v}+(t-${a.t})*${round4((b.v - a.v) / (b.t - a.t))}`
+    let seg: string
+    if (b.t === a.t) {
+      seg = String(b.v)
+    } else if (a.easing === 'linear') {
+      seg = `${a.v}+(t-${a.t})*${round4((b.v - a.v) / (b.t - a.t))}`
+    } else {
+      const u = `(t-${a.t})/${round4(b.t - a.t)}`
+      seg = `${a.v}+(${round4(b.v - a.v)})*${easeFfmpeg(a.easing, u)}`
+    }
     expr = `if(lt(t,${b.t}),${seg},${expr})`
   }
   return `if(lt(t,${pts[0].t}),${pts[0].v},${expr})`

@@ -1,4 +1,7 @@
 import { z } from 'zod'
+import { EASINGS } from './keyframe-easing'
+
+export type { Easing } from './keyframe-easing'
 
 // Single source of truth for the project data model. Types everywhere else are
 // inferred from these schemas, so validation and TypeScript cannot drift.
@@ -17,11 +20,20 @@ export const MediaFileSchema = z.object({
   size: z.number(),
 })
 
+// The easing vocabulary itself lives in keyframe-easing.ts, which imports
+// nothing, so renderer code can list the curves without importing this module
+// and therefore without pulling zod into the client bundle.
+export const EasingSchema = z.enum(EASINGS)
+
 export const KeyframeSchema = z.object({
   id: z.string(),
   time: z.number(),       // absolute project time in seconds
   property: z.string(),   // 'x' | 'y' | 'scaleX' | 'scaleY' | 'rotation' | 'opacity'
   value: z.number(),
+  // Defaults rather than being optional so every consumer can read it without a
+  // fallback, and so a v3 file parses to exactly the interpolation it was
+  // authored against.
+  easing: EasingSchema.default('linear'),
 })
 
 export const ClipSchema = z.object({
@@ -172,7 +184,7 @@ export const ProjectSchema = z.object({
   captions: z.array(CaptionSchema),
 })
 
-export const CURRENT_SCHEMA_VERSION = 3
+export const CURRENT_SCHEMA_VERSION = 4
 
 export const ProjectFileSchema = z.object({
   app: z.literal('capjul'),

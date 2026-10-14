@@ -4,7 +4,7 @@ import {
   overlayOrigin, volumeExpression,
   type RenderAudio, type RenderLayer, type RenderOutput,
 } from './render-plan'
-import type { AudioClip, Clip, MediaFile, Project } from './project-schema'
+import type { AudioClip, Clip, Keyframe, MediaFile, Project } from './project-schema'
 
 const output: RenderOutput = { format: 'mp4', videoBitrate: '8M', audioBitrate: '192k' }
 
@@ -217,7 +217,7 @@ describe('buildRenderArgs', () => {
 })
 
 describe('volumeExpression', () => {
-  const kf = (time: number, value: number) => ({ id: `k${time}`, time, property: 'volume', value })
+  const kf = (time: number, value: number): Keyframe => ({ id: `k${time}`, time, property: 'volume', value, easing: 'linear' })
 
   it('is the plain volume when nothing is keyframed', () => {
     expect(volumeExpression([], 0.8, 0)).toBe('0.8')
@@ -236,7 +236,7 @@ describe('volumeExpression', () => {
   })
 
   it('ignores keyframes for other properties', () => {
-    expect(volumeExpression([{ id: 'x', time: 1, property: 'x', value: 5 }], 0.4, 0)).toBe('0.4')
+    expect(volumeExpression([{ id: 'x', time: 1, property: 'x', value: 5, easing: 'linear' }], 0.4, 0)).toBe('0.4')
   })
 })
 
@@ -257,15 +257,15 @@ describe('audioGraphFilters volume', () => {
   it('switches to a per-frame expression when volume is keyframed', () => {
     const [chain] = audioGraphFilters(inputs, [entry({
       keyframes: [
-        { id: 'a', time: 1, property: 'volume', value: 0 },
-        { id: 'b', time: 3, property: 'volume', value: 1 },
+        { id: 'a', time: 1, property: 'volume', value: 0, easing: 'linear' },
+        { id: 'b', time: 3, property: 'volume', value: 1, easing: 'linear' },
       ],
     })])
     expect(chain).toContain("volume=volume='if(lt(t,0),0,if(lt(t,2),0+(t-0)*0.5,1))':eval=frame")
   })
 
   it('carries audio clip volume keyframes into the plan', () => {
-    const kfs = [{ id: 'v', time: 1, property: 'volume', value: 0.25 }]
+    const kfs: Keyframe[] = [{ id: 'v', time: 1, property: 'volume', value: 0.25, easing: 'linear' }]
     const plan = compileProject(project({ audioClips: [audioClip({ keyframes: kfs })] }), output)
     expect(plan.audio[0].keyframes).toEqual(kfs)
   })
