@@ -150,6 +150,22 @@ layers, so it is a real project, not a cleanup.
 Owner: next engineering slot. Correct the comment immediately; schedule the
 migration alongside D7, since both touch the same preview render path.
 
+### D19 — Sticker clips are not snap targets when dragging
+`snapTime` (`src/shared/timeline-snap.ts`) collects candidate edges from
+`project.clips`, `project.audioClips` and `project.textClips`, but not
+`project.stickerClips`. Dragging a sticker therefore does not snap to other
+stickers, and dragging anything else does not snap to a sticker's edges, while
+video, audio and text all snap to each other.
+
+Found while extracting the function; it is an inconsistency in the original code,
+not something the extraction introduced. A test now pins the current behaviour so
+that including stickers is a deliberate change that fails a test, rather than a
+silent one.
+Impact: minor editing friction, inconsistent between clip kinds.
+Effort: one line plus updating that test. Held back only because it changes how
+dragging feels, which is a judgement call rather than a bug fix.
+Owner: **Julian** for whether stickers should snap; engineering for the line.
+
 ## Resolved during this hardening pass
 
 Kept here for traceability; each has a commit.
@@ -300,3 +316,29 @@ Kept here for traceability; each has a commit.
   risk there is module loading rather than rendering: 544 DOM nodes, placeholder
   and transport controls mounted, zero page errors. The order change itself is not
   observable without a media clip, which needs `electronAPI` to import.
+- **P1 while open: clips could only be dragged right and only be made longer.**
+  `xToTime` clamped with `Math.max(0, ...)`, which is correct for an absolute
+  ruler position and wrong for a pixel *delta* — and all seven drag and resize
+  handlers fed it a delta. Every negative delta became zero, so moving a clip
+  earlier, trimming a clip shorter, and extending a clip's head by dragging its
+  left edge leftward all did nothing at all. Splitting, duplication, deletion and
+  the right-hand and bottom directions worked, which is why it did not look
+  broken from a distance.
+  Found by probing the running app, not by reading: a script added a text clip,
+  dragged it 160px right (moved), then 80px left twice (did not move), then
+  exercised both resize handles in both directions. Four of six gestures were
+  dead. Reading `xToTime` alone does not reveal this, because the clamp is
+  correct at two of its three call sites.
+  Fixed by adding an unclamped `dxToTime` for deltas and leaving `xToTime` for
+  the ruler click, marquee bounds and media drop position, which really are
+  absolute. Re-probed afterwards: all six gestures move, and leftward drags now
+  land where they should.
+  Fixing it exposed one new risk, handled in the same change: a negative delta
+  can now push `mediaStart` below zero, which is not merely past the end of the
+  source but an invalid `ffmpeg -ss`. Both left-resize paths floor it at 0.
+- `snapTime` moved to `src/shared/timeline-snap.ts` with 11 tests. It had been
+  untested pure logic living inside the component. The tests pin the 8px
+  threshold at a given zoom, the candidate order that breaks ties, `excludeId`,
+  and that audio and text clips are snap targets while **sticker clips are not** —
+  an omission the old code made silently, now recorded as D19 so that adding
+  stickers fails a test instead of happening by accident.

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Plus, Scissors, Trash2 } from 'lucide-react'
-import { Copy, Clipboard } from 'lucide-react'
+import { Clipboard, Copy, Plus, Scissors, Trash2 } from 'lucide-react'
 import { selectHasSelection, useEditorStore } from '../../store/editorStore'
 import { copyClipAfter, MEDIA_DRAG_MIME, makeAudioClipFromMedia, makeClipFromMedia } from '../../shared/clip-factory'
 import type { Splittable } from '../../shared/clip-split'
+import { snapTime } from '../../shared/timeline-snap'
 import { AudioClipItem, StickerClipItem, TextClipItem, TrackLabel, VideoClipItem } from './ClipItems'
 import { ContextMenu, type ContextMenuEntry } from './ContextMenu'
 import type { AudioClip, Clip, StickerClip, TextClip, Track } from '../../types'
@@ -44,7 +44,12 @@ export function Timeline() {
   const totalWidth = Math.max(timelineDuration * pxPerSec + 200, 800)
 
   function timeToX(t: number) { return t * pxPerSec }
+  /** Absolute timeline position from a pixel offset inside the track area. */
   function xToTime(x: number) { return Math.max(0, x / pxPerSec) }
+  /** Pixel *delta* to seconds. Deliberately unclamped: dragging left, and
+   *  trimming a clip shorter, are both negative deltas and clamping them to zero
+   *  made every leftward edit a no-op. */
+  function dxToTime(dx: number) { return dx / pxPerSec }
 
   // Auto-scroll timeline to keep playhead visible during playback
   useEffect(() => {
@@ -59,30 +64,11 @@ export function Timeline() {
     }
   }, [currentTime, isPlaying, pxPerSec])
 
-  // Snap a time to nearby clip edges or playhead (within ~8px at current zoom)
-  function snapTime(t: number, excludeId?: string): number {
-    const SNAP_PX = 8
-    const threshold = SNAP_PX / pxPerSec
-    const snaps: number[] = [currentTime, 0]
-    for (const c of project.clips) {
-      if (c.id === excludeId) continue
-      snaps.push(c.startTime, c.startTime + c.duration)
-    }
-    for (const c of project.audioClips) {
-      if (c.id === excludeId) continue
-      snaps.push(c.startTime, c.startTime + c.duration)
-    }
-    for (const c of project.textClips) {
-      if (c.id === excludeId) continue
-      snaps.push(c.startTime, c.startTime + c.duration)
-    }
-    let best = t
-    let bestDist = threshold
-    for (const s of snaps) {
-      const dist = Math.abs(t - s)
-      if (dist < bestDist) { bestDist = dist; best = s }
-    }
-    return best
+  // Snap a time to nearby clip edges or the playhead. The logic itself is pure
+  // and tested in shared/timeline-snap.ts; this just supplies the current
+  // project, playhead and zoom.
+  function snap(t: number, excludeId?: string): number {
+    return snapTime(project, t, currentTime, pxPerSec, excludeId)
   }
 
   // Reads the store through getState() so the callback's identity changes only
@@ -138,8 +124,8 @@ export function Timeline() {
 
     function onMove(me: MouseEvent) {
       const dx = me.clientX - x
-      const raw = Math.max(0, clipStart + xToTime(dx))
-      const newStart = me.shiftKey ? raw : snapTime(raw, clipId)
+      const raw = Math.max(0, clipStart + dxToTime(dx))
+      const newStart = me.shiftKey ? raw : snap(raw, clipId)
       updateClip(clipId, { startTime: newStart })
     }
     function onUp() {
@@ -157,14 +143,17 @@ export function Timeline() {
     const startX = e.clientX
 
     function onMove(me: MouseEvent) {
-      const dx = xToTime(me.clientX - startX)
+      const dx = dxToTime(me.clientX - startX)
       if (side === 'right') {
         const newDur = Math.max(0.1, clip.duration + dx)
         updateClip(clipId, { duration: newDur, mediaEnd: clip.mediaStart + newDur })
       } else {
         const newStart = Math.max(0, clip.startTime + dx)
         const newDur = Math.max(0.1, clip.duration - dx)
-        updateClip(clipId, { startTime: newStart, duration: newDur, mediaStart: clip.mediaStart + dx })
+        // Floor at the source start. A negative mediaStart is not merely past the
+        // end of the file, it is an invalid ffmpeg -ss, and trimming left could
+        // produce one now that negative deltas are honoured.
+        updateClip(clipId, { startTime: newStart, duration: newDur, mediaStart: Math.max(0, clip.mediaStart + dx) })
       }
     }
     function onUp() {
@@ -180,13 +169,15 @@ export function Timeline() {
     e.preventDefault()
     const startX = e.clientX
     function onMove(me: MouseEvent) {
-      const dx = xToTime(me.clientX - startX)
+      const dx = dxToTime(me.clientX - startX)
       if (side === 'right') {
-        updateAudioClip(clipId, { duration: Math.max(0.1, clip.duration + dx), mediaEnd: clip.mediaStart + Math.max(0.1, clip.duration + dx) })
+        const newDur = Math.max(0.1, clip.duration + dx)
+        updateAudioClip(clipId, { duration: newDur, mediaEnd: clip.mediaStart + newDur })
       } else {
         const newStart = Math.max(0, clip.startTime + dx)
         const newDur = Math.max(0.1, clip.duration - dx)
-        updateAudioClip(clipId, { startTime: newStart, duration: newDur, mediaStart: clip.mediaStart + dx })
+        // Floor at the source start, as for video clips.
+        updateAudioClip(clipId, { startTime: newStart, duration: newDur, mediaStart: Math.max(0, clip.mediaStart + dx) })
       }
     }
     function onUp() {
@@ -207,7 +198,7 @@ export function Timeline() {
     e.preventDefault()
     const startX = e.clientX
     function onMove(me: MouseEvent) {
-      const dx = xToTime(me.clientX - startX)
+      const dx = dxToTime(me.clientX - startX)
       if (side === 'right') {
         updateFn(clip.id, { duration: Math.max(0.1, clip.duration + dx) })
       } else {
@@ -237,8 +228,8 @@ export function Timeline() {
       setSelected({ audios: [clipId] })
     }
     function onMove(me: MouseEvent) {
-      const raw = Math.max(0, clipStart + xToTime(me.clientX - x))
-      const newStart = me.shiftKey ? raw : snapTime(raw, clipId)
+      const raw = Math.max(0, clipStart + dxToTime(me.clientX - x))
+      const newStart = me.shiftKey ? raw : snap(raw, clipId)
       updateAudioClip(clipId, { startTime: newStart })
     }
     function onUp() {
@@ -262,8 +253,8 @@ export function Timeline() {
       setSelected({ texts: [clipId] })
     }
     function onMove(me: MouseEvent) {
-      const raw = Math.max(0, clipStart + xToTime(me.clientX - x))
-      const newStart = me.shiftKey ? raw : snapTime(raw, clipId)
+      const raw = Math.max(0, clipStart + dxToTime(me.clientX - x))
+      const newStart = me.shiftKey ? raw : snap(raw, clipId)
       updateTextClip(clipId, { startTime: newStart })
     }
     function onUp() {
@@ -287,8 +278,8 @@ export function Timeline() {
       setSelected({ stickers: [clipId] })
     }
     function onMove(me: MouseEvent) {
-      const raw = Math.max(0, clipStart + xToTime(me.clientX - x))
-      const newStart = me.shiftKey ? raw : snapTime(raw, clipId)
+      const raw = Math.max(0, clipStart + dxToTime(me.clientX - x))
+      const newStart = me.shiftKey ? raw : snap(raw, clipId)
       updateStickerClip(clipId, { startTime: newStart })
     }
     function onUp() {
