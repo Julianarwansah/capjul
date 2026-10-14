@@ -84,10 +84,11 @@ export default function App() {
     showExportDialog, showProjectSettings,
     undo, redo, setIsPlaying, isPlaying,
     currentTime, setCurrentTime, project,
-    selectedClipIds, removeClips, clearSelection, splitClip,
+    splitAtPlayhead, duplicateSelection, deleteSelection,
   } = useEditorStore()
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts. This is the only place global keys are bound; the
+  // timeline keeps just copy/paste, which needs its own clipboard state.
   const handleKeyDown = useCallback(async (e: KeyboardEvent) => {
     const tag = (e.target as HTMLElement).tagName
     if (tag === 'INPUT' || tag === 'TEXTAREA') return
@@ -102,8 +103,8 @@ export default function App() {
       if (e.shiftKey) redo()
       else undo()
     } else if (e.code === 'Delete' || e.code === 'Backspace') {
-      removeClips(selectedClipIds)
-      clearSelection()
+      e.preventDefault()
+      deleteSelection()
     } else if (e.code === 'KeyS' && mod) {
       e.preventDefault()
       const saved = await window.electronAPI?.saveProject(project)
@@ -111,8 +112,13 @@ export default function App() {
         alert(`Save failed: ${saved.error.message}`)
       }
     } else if (e.code === 'KeyB') {
-      // Split at playhead
-      selectedClipIds.forEach(id => splitClip(id, currentTime))
+      // Split at playhead. Bound with and without the modifier: plain B was the
+      // original binding, Cmd+B is what CapCut users reach for.
+      e.preventDefault()
+      splitAtPlayhead()
+    } else if (mod && e.code === 'KeyD') {
+      e.preventDefault()
+      duplicateSelection()
     } else if (e.code === 'ArrowLeft') {
       e.preventDefault()
       setCurrentTime(Math.max(0, currentTime - (e.shiftKey ? 5 : 1 / project.fps)))
@@ -148,8 +154,9 @@ export default function App() {
       setCurrentTime(Math.min(project.duration, currentTime + 1 / project.fps))
     }
   }, [
-    isPlaying, selectedClipIds, currentTime, project,
-    setIsPlaying, undo, redo, removeClips, clearSelection, splitClip, setCurrentTime,
+    isPlaying, currentTime, project,
+    setIsPlaying, undo, redo, setCurrentTime,
+    splitAtPlayhead, duplicateSelection, deleteSelection,
   ])
 
   useEffect(() => {

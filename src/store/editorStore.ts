@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import { computeDuration } from '../shared/project-duration'
+import { canSplitAt, splitClipAt, type Splittable } from '../shared/clip-split'
+import { copyClipAfter } from '../shared/clip-factory'
 import {
   ASPECT_RATIOS, COALESCE_WINDOW_MS, HISTORY_LIMIT,
   cloneProject, createDefaultProject,
@@ -10,7 +12,7 @@ import type {
   Track, Transition, Caption, Keyframe, LeftPanelTab, AspectRatio
 } from '../types'
 
-interface EditorState {
+export interface EditorState {
   project: Project
   // Playback
   currentTime: number
@@ -48,12 +50,19 @@ interface EditorState {
   addClip: (clip: Clip) => void
   updateClip: (id: string, changes: Partial<Clip>) => void
   removeClip: (id: string) => void
-  removeClips: (ids: string[]) => void
   rippleDelete: (id: string, kind: 'video' | 'audio' | 'text' | 'sticker') => void
   splitClip: (id: string, time: number) => void
   splitAudioClip: (id: string, time: number) => void
   splitTextClip: (id: string, time: number) => void
   splitStickerClip: (id: string, time: number) => void
+
+  // Selection-wide counterparts of the three clip operations above. Every entry
+  // point (top bar, timeline context menu, keyboard shortcut) goes through
+  // these so the four clip kinds cannot drift apart and one gesture cannot
+  // cost more than one undo step.
+  splitAtPlayhead: () => void
+  duplicateSelection: () => void
+  deleteSelection: () => void
 
   addTextClip: (clip: TextClip) => void
   updateTextClip: (id: string, changes: Partial<TextClip>) => void
@@ -157,11 +166,6 @@ export const useEditorStore = create<EditorState>()(
       true,
     ),
     removeClip: (id) => get().mutate(p => ({ ...p, clips: p.clips.filter(c => c.id !== id) })),
-    removeClips: (ids) => {
-      if (ids.length === 0) return
-      const idSet = new Set(ids)
-      get().mutate(p => ({ ...p, clips: p.clips.filter(c => !idSet.has(c.id)) }))
-    },
     rippleDelete: (id, kind) => get().mutate(p => {
       function ripple<T extends { id: string; trackId: string; startTime: number; duration: number }>(
         list: T[], targetId: string
@@ -183,35 +187,108 @@ export const useEditorStore = create<EditorState>()(
     }),
     splitClip: (id, time) => {
       const clip = get().project.clips.find(c => c.id === id)
-      if (!clip || time <= clip.startTime || time >= clip.startTime + clip.duration) return
-      const elapsed = time - clip.startTime
-      const first: Clip = { ...clip, id: crypto.randomUUID(), duration: elapsed, mediaEnd: clip.mediaStart + elapsed * clip.speed }
-      const second: Clip = { ...clip, id: crypto.randomUUID(), startTime: time, duration: clip.duration - elapsed, mediaStart: clip.mediaStart + elapsed * clip.speed }
-      get().mutate(p => ({ ...p, clips: p.clips.flatMap(c => c.id === id ? [first, second] : [c]) }))
+      const halves = clip ? splitClipAt(clip, time) : null
+      if (!halves) return
+      get().mutate(p => ({ ...p, clips: p.clips.flatMap(c => c.id === id ? halves : [c]) }))
     },
     splitAudioClip: (id, time) => {
       const clip = get().project.audioClips.find(c => c.id === id)
-      if (!clip || time <= clip.startTime || time >= clip.startTime + clip.duration) return
-      const elapsed = time - clip.startTime
-      const first: AudioClip = { ...clip, id: crypto.randomUUID(), duration: elapsed, mediaEnd: clip.mediaStart + elapsed * clip.speed }
-      const second: AudioClip = { ...clip, id: crypto.randomUUID(), startTime: time, duration: clip.duration - elapsed, mediaStart: clip.mediaStart + elapsed * clip.speed }
-      get().mutate(p => ({ ...p, audioClips: p.audioClips.flatMap(c => c.id === id ? [first, second] : [c]) }))
+      const halves = clip ? splitClipAt(clip, time) : null
+      if (!halves) return
+      get().mutate(p => ({ ...p, audioClips: p.audioClips.flatMap(c => c.id === id ? halves : [c]) }))
     },
     splitTextClip: (id, time) => {
       const clip = get().project.textClips.find(c => c.id === id)
-      if (!clip || time <= clip.startTime || time >= clip.startTime + clip.duration) return
-      const elapsed = time - clip.startTime
-      const first: TextClip = { ...clip, id: crypto.randomUUID(), duration: elapsed }
-      const second: TextClip = { ...clip, id: crypto.randomUUID(), startTime: time, duration: clip.duration - elapsed }
-      get().mutate(p => ({ ...p, textClips: p.textClips.flatMap(c => c.id === id ? [first, second] : [c]) }))
+      const halves = clip ? splitClipAt(clip, time) : null
+      if (!halves) return
+      get().mutate(p => ({ ...p, textClips: p.textClips.flatMap(c => c.id === id ? halves : [c]) }))
     },
     splitStickerClip: (id, time) => {
       const clip = get().project.stickerClips.find(c => c.id === id)
-      if (!clip || time <= clip.startTime || time >= clip.startTime + clip.duration) return
-      const elapsed = time - clip.startTime
-      const first: StickerClip = { ...clip, id: crypto.randomUUID(), duration: elapsed }
-      const second: StickerClip = { ...clip, id: crypto.randomUUID(), startTime: time, duration: clip.duration - elapsed }
-      get().mutate(p => ({ ...p, stickerClips: p.stickerClips.flatMap(c => c.id === id ? [first, second] : [c]) }))
+      const halves = clip ? splitClipAt(clip, time) : null
+      if (!halves) return
+      get().mutate(p => ({ ...p, stickerClips: p.stickerClips.flatMap(c => c.id === id ? halves : [c]) }))
+    },
+
+    splitAtPlayhead: () => {
+      const s = get()
+      const t = s.currentTime
+      const ids = {
+        clips: new Set(s.selectedClipIds),
+        audios: new Set(s.selectedAudioIds),
+        texts: new Set(s.selectedTextIds),
+        stickers: new Set(s.selectedStickerIds),
+      }
+      // Without this guard a click on Split with the playhead outside every
+      // selected clip would still spend an undo step on nothing.
+      const canSplit =
+        s.project.clips.some(c => ids.clips.has(c.id) && canSplitAt(c, t)) ||
+        s.project.audioClips.some(c => ids.audios.has(c.id) && canSplitAt(c, t)) ||
+        s.project.textClips.some(c => ids.texts.has(c.id) && canSplitAt(c, t)) ||
+        s.project.stickerClips.some(c => ids.stickers.has(c.id) && canSplitAt(c, t))
+      if (!canSplit) return
+
+      const cut = <T extends Splittable>(list: T[], selected: Set<string>): T[] =>
+        list.flatMap(c => (selected.has(c.id) ? splitClipAt(c, t) ?? [c] : [c]))
+      get().mutate(p => ({
+        ...p,
+        clips: cut(p.clips, ids.clips),
+        audioClips: cut(p.audioClips, ids.audios),
+        textClips: cut(p.textClips, ids.texts),
+        stickerClips: cut(p.stickerClips, ids.stickers),
+      }))
+      // Both halves are new ids, so the selection would otherwise keep pointing
+      // at clips that no longer exist and leave the toolbar stuck enabled.
+      get().clearSelection()
+    },
+
+    duplicateSelection: () => {
+      const s = get()
+      const copy = <T extends Splittable>(list: T[], selected: Set<string>): T[] =>
+        list.filter(c => selected.has(c.id)).map(c => copyClipAfter(c))
+
+      const copies = {
+        clips: copy(s.project.clips, new Set(s.selectedClipIds)),
+        audioClips: copy(s.project.audioClips, new Set(s.selectedAudioIds)),
+        textClips: copy(s.project.textClips, new Set(s.selectedTextIds)),
+        stickerClips: copy(s.project.stickerClips, new Set(s.selectedStickerIds)),
+      }
+      const total = Object.values(copies).reduce((n, list) => n + list.length, 0)
+      if (total === 0) return
+
+      get().mutate(p => ({
+        ...p,
+        clips: [...p.clips, ...copies.clips],
+        audioClips: [...p.audioClips, ...copies.audioClips],
+        textClips: [...p.textClips, ...copies.textClips],
+        stickerClips: [...p.stickerClips, ...copies.stickerClips],
+      }))
+      // Selecting the copies makes a repeated Cmd+D chain them end to end.
+      get().setSelected({
+        clips: copies.clips.map(c => c.id),
+        audios: copies.audioClips.map(c => c.id),
+        texts: copies.textClips.map(c => c.id),
+        stickers: copies.stickerClips.map(c => c.id),
+      })
+    },
+
+    deleteSelection: () => {
+      const s = get()
+      const ids = {
+        clips: new Set(s.selectedClipIds),
+        audios: new Set(s.selectedAudioIds),
+        texts: new Set(s.selectedTextIds),
+        stickers: new Set(s.selectedStickerIds),
+      }
+      if (ids.clips.size + ids.audios.size + ids.texts.size + ids.stickers.size === 0) return
+      get().mutate(p => ({
+        ...p,
+        clips: p.clips.filter(c => !ids.clips.has(c.id)),
+        audioClips: p.audioClips.filter(c => !ids.audios.has(c.id)),
+        textClips: p.textClips.filter(c => !ids.texts.has(c.id)),
+        stickerClips: p.stickerClips.filter(c => !ids.stickers.has(c.id)),
+      }))
+      get().clearSelection()
     },
 
     addTextClip: (clip) => get().mutate(p => ({ ...p, textClips: [...p.textClips, clip] })),
@@ -385,3 +462,9 @@ export const useEditorStore = create<EditorState>()(
     },
   }))
 )
+
+/** True when anything at all is selected, across the four clip kinds. Reactive
+ *  selector for disabling toolbar actions; the store actions guard themselves. */
+export const selectHasSelection = (s: EditorState): boolean =>
+  s.selectedClipIds.length > 0 || s.selectedTextIds.length > 0
+  || s.selectedStickerIds.length > 0 || s.selectedAudioIds.length > 0

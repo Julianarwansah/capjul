@@ -19,6 +19,7 @@ export function PreviewPanel() {
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const videoRefB = useRef<HTMLVideoElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const chromaCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -34,6 +35,25 @@ export function PreviewPanel() {
   const [previewScale, setPreviewScale] = useState(1)
   const [showGrid, setShowGrid] = useState(false)
   const [showSafeZone, setShowSafeZone] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  // The whole panel goes fullscreen, not just the canvas, so the transport
+  // controls stay reachable. Escape exits through the browser, which is why the
+  // button state is driven by the fullscreenchange event rather than by the
+  // toggle function - otherwise leaving with Escape would desync the icon.
+  useEffect(() => {
+    function onChange() { setIsFullscreen(document.fullscreenElement === rootRef.current) }
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+
+  function toggleFullscreen() {
+    const pending = document.fullscreenElement
+      ? document.exitFullscreen()
+      : rootRef.current?.requestFullscreen()
+    // Rejection is not an error worth surfacing; the state syncs from the event.
+    pending?.catch(() => {})
+  }
 
   // Keep refs in sync with state/props
   useEffect(() => { currentTimeRef.current = currentTime }, [currentTime])
@@ -388,7 +408,7 @@ export function PreviewPanel() {
     : ''
 
   return (
-    <div className="flex flex-col h-full" style={{ background: 'var(--color-bg-base)' }}>
+    <div ref={rootRef} className="flex flex-col h-full" style={{ background: 'var(--color-bg-base)' }}>
       {/* Preview area */}
       <div
         ref={containerRef}
@@ -736,12 +756,14 @@ export function PreviewPanel() {
         progressPct={progressPct}
         volume={volume}
         muted={muted}
+        isFullscreen={isFullscreen}
         onSeek={handleSeek}
         onPlayPause={handlePlayPause}
         onSetCurrentTime={setCurrentTime}
         onSetPlaybackSpeed={setPlaybackSpeed}
         onToggleMuted={() => setMuted(m => !m)}
         onVolume={v => { setVolume(v); if (videoRef.current) videoRef.current.volume = v }}
+        onToggleFullscreen={toggleFullscreen}
       />
     </div>
   )

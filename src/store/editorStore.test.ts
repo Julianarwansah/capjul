@@ -311,3 +311,240 @@ describe('history coalescing', () => {
     expect(s().history.length).toBe(after + 1)
   })
 })
+
+// The three selection-wide actions below replace per-kind fan-out that used to
+// be duplicated in App.tsx, TopBar.tsx and Timeline/index.tsx. Two of those
+// copies only handled video clips, and because App and Timeline both listened
+// for keydown on window, one Delete keypress could spend several undo steps.
+// These tests pin the fan-out and the one-gesture-one-undo-step rule.
+
+function seedOneOfEachKind(startTime = 0, duration = 10) {
+  const clip = makeClip({ startTime, duration, mediaStart: 0, mediaEnd: duration })
+  const text = makeTextClip({ startTime, duration })
+  const sticker = makeSticker({ startTime, duration })
+  const audio = makeAudioClip({ startTime, duration, mediaStart: 0, mediaEnd: duration })
+  s().addClip(clip)
+  s().addTextClip(text)
+  s().addStickerClip(sticker)
+  s().addAudioClip(audio)
+  return { clip, text, sticker, audio }
+}
+
+function selectAll(seeded: ReturnType<typeof seedOneOfEachKind>) {
+  s().setSelected({
+    clips: [seeded.clip.id],
+    texts: [seeded.text.id],
+    stickers: [seeded.sticker.id],
+    audios: [seeded.audio.id],
+  })
+}
+
+describe('splitAtPlayhead', () => {
+  it('cuts every selected kind at the playhead', () => {
+    selectAll(seedOneOfEachKind())
+    s().setCurrentTime(4)
+
+    s().splitAtPlayhead()
+
+    const lists = [
+      s().project.clips, s().project.textClips,
+      s().project.stickerClips, s().project.audioClips,
+    ]
+    for (const list of lists) {
+      expect(list).toHaveLength(2)
+      expect(list.map(c => c.duration).sort((a, b) => a - b)).toEqual([4, 6])
+    }
+  })
+
+  it('costs exactly one undo step across all four kinds', () => {
+    selectAll(seedOneOfEachKind())
+    s().setCurrentTime(4)
+    const before = s().history.length
+
+    s().splitAtPlayhead()
+
+    expect(s().history.length).toBe(before + 1)
+    s().undo()
+    expect(s().project.clips).toHaveLength(1)
+    expect(s().project.textClips).toHaveLength(1)
+    expect(s().project.stickerClips).toHaveLength(1)
+    expect(s().project.audioClips).toHaveLength(1)
+  })
+
+  it('spends no undo step when the playhead is outside every selected clip', () => {
+    selectAll(seedOneOfEachKind())
+    s().setCurrentTime(20)
+    const before = s().history.length
+
+    s().splitAtPlayhead()
+
+    expect(s().project.clips).toHaveLength(1)
+    expect(s().history.length).toBe(before)
+  })
+
+  it('clears a selection whose ids no longer exist after the cut', () => {
+    selectAll(seedOneOfEachKind())
+    s().setCurrentTime(4)
+
+    s().splitAtPlayhead()
+
+    expect(s().selectedClipIds).toEqual([])
+    expect(s().selectedTextIds).toEqual([])
+    expect(s().selectedStickerIds).toEqual([])
+    expect(s().selectedAudioIds).toEqual([])
+  })
+
+  it('advances the media window of the second half', () => {
+    const clip = makeClip({ startTime: 0, duration: 10, mediaStart: 2, mediaEnd: 12, speed: 1 })
+    s().addClip(clip)
+    s().setSelected({ clips: [clip.id] })
+    s().setCurrentTime(4)
+
+    s().splitAtPlayhead()
+
+    const [first, second] = s().project.clips
+    expect(first).toMatchObject({ mediaStart: 2, mediaEnd: 6 })
+    expect(second).toMatchObject({ mediaStart: 6, mediaEnd: 12 })
+  })
+
+  it('keeps each half animating its own part of the move', () => {
+    const clip = makeClip({
+      startTime: 0, duration: 10,
+      keyframes: [
+        { id: 'k1', property: 'x', time: 0, value: 0 },
+        { id: 'k2', property: 'x', time: 10, value: 100 },
+      ],
+    })
+    s().addClip(clip)
+    s().setSelected({ clips: [clip.id] })
+    s().setCurrentTime(5)
+
+    s().splitAtPlayhead()
+
+    const [first, second] = s().project.clips
+    // The first half must not keep the far keyframe, or it animates toward a
+    // value it should never reach.
+    expect(first.keyframes.every(k => k.time <= 5)).toBe(true)
+    expect(second.keyframes.every(k => k.time >= 5)).toBe(true)
+  })
+})
+
+describe('duplicateSelection', () => {
+  it('copies every selected kind just past the original', () => {
+    selectAll(seedOneOfEachKind(0, 5))
+
+    s().duplicateSelection()
+
+    expect(s().project.clips[1].startTime).toBeCloseTo(5.1)
+    expect(s().project.textClips[1].startTime).toBeCloseTo(5.1)
+    expect(s().project.stickerClips[1].startTime).toBeCloseTo(5.1)
+    expect(s().project.audioClips[1].startTime).toBeCloseTo(5.1)
+  })
+
+  it('selects the copies so a repeat chains them end to end', () => {
+    const seeded = seedOneOfEachKind(0, 5)
+    selectAll(seeded)
+
+    s().duplicateSelection()
+    expect(s().selectedClipIds).not.toEqual([seeded.clip.id])
+
+    s().duplicateSelection()
+    expect(s().project.clips).toHaveLength(3)
+    expect(s().project.clips[2].startTime).toBeCloseTo(10.2)
+  })
+
+  it('shifts keyframe times with the copy, since they are absolute', () => {
+    const clip = makeClip({
+      startTime: 0, duration: 5,
+      keyframes: [
+        { id: 'k1', property: 'x', time: 0, value: 0 },
+        { id: 'k2', property: 'x', time: 5, value: 1 },
+      ],
+    })
+    s().addClip(clip)
+    s().setSelected({ clips: [clip.id] })
+
+    s().duplicateSelection()
+
+    const copy = s().project.clips[1]
+    expect(copy.keyframes.map(k => k.time)).toEqual([5.1, 10.1])
+    expect(copy.keyframes.map(k => k.id)).not.toContain('k1')
+  })
+
+  it('is one undo step', () => {
+    selectAll(seedOneOfEachKind())
+    const before = s().history.length
+
+    s().duplicateSelection()
+
+    expect(s().history.length).toBe(before + 1)
+    s().undo()
+    expect(s().project.clips).toHaveLength(1)
+  })
+
+  it('spends no undo step when nothing is selected', () => {
+    const before = s().history.length
+
+    s().duplicateSelection()
+
+    expect(s().history.length).toBe(before)
+  })
+})
+
+describe('deleteSelection', () => {
+  it('removes every selected kind in one undo step', () => {
+    selectAll(seedOneOfEachKind())
+    const before = s().history.length
+
+    s().deleteSelection()
+
+    expect(s().project.clips).toEqual([])
+    expect(s().project.textClips).toEqual([])
+    expect(s().project.stickerClips).toEqual([])
+    expect(s().project.audioClips).toEqual([])
+    expect(s().history.length).toBe(before + 1)
+  })
+
+  it('restores all four kinds on undo', () => {
+    selectAll(seedOneOfEachKind())
+    s().deleteSelection()
+
+    s().undo()
+
+    expect(s().project.clips).toHaveLength(1)
+    expect(s().project.textClips).toHaveLength(1)
+    expect(s().project.stickerClips).toHaveLength(1)
+    expect(s().project.audioClips).toHaveLength(1)
+  })
+
+  it('leaves unselected clips alone', () => {
+    const kept = makeClip({ startTime: 0, duration: 5 })
+    const doomed = makeClip({ startTime: 5, duration: 5 })
+    s().addClip(kept)
+    s().addClip(doomed)
+    s().setSelected({ clips: [doomed.id] })
+
+    s().deleteSelection()
+
+    expect(s().project.clips.map(c => c.id)).toEqual([kept.id])
+  })
+
+  it('clears the selection', () => {
+    selectAll(seedOneOfEachKind())
+
+    s().deleteSelection()
+
+    expect(s().selectedClipIds).toEqual([])
+    expect(s().selectedTextIds).toEqual([])
+    expect(s().selectedStickerIds).toEqual([])
+    expect(s().selectedAudioIds).toEqual([])
+  })
+
+  it('spends no undo step when nothing is selected', () => {
+    const before = s().history.length
+
+    s().deleteSelection()
+
+    expect(s().history.length).toBe(before)
+  })
+})

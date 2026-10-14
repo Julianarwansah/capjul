@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
-  Maximize2, ChevronLeft, ChevronRight,
+  Maximize2, Minimize2, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 
 const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4]
@@ -19,6 +19,7 @@ function CtrlBtn({ icon, onClick, title }: { icon: React.ReactNode; onClick: () 
   return (
     <button
       title={title}
+      aria-label={title}
       onClick={onClick}
       className="w-8 h-8 rounded flex items-center justify-center"
       style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)' }}
@@ -39,12 +40,14 @@ export interface PreviewControlsProps {
   progressPct: number
   volume: number
   muted: boolean
+  isFullscreen: boolean
   onSeek: (e: React.MouseEvent<HTMLDivElement>) => void
   onPlayPause: () => void
   onSetCurrentTime: (t: number) => void
   onSetPlaybackSpeed: (s: number) => void
   onToggleMuted: () => void
   onVolume: (v: number) => void
+  onToggleFullscreen: () => void
 }
 
 export function PreviewControls(p: PreviewControlsProps) {
@@ -88,6 +91,8 @@ export function PreviewControls(p: PreviewControlsProps) {
           <CtrlBtn icon={<ChevronLeft size={16} />} onClick={() => p.onSetCurrentTime(Math.max(0, p.currentTime - 1 / p.fps))} title="Previous frame" />
           <button
             onClick={p.onPlayPause}
+            title={p.isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+            aria-label={p.isPlaying ? 'Pause' : 'Play'}
             className="w-9 h-9 rounded-full flex items-center justify-center"
             style={{ background: 'var(--color-primary)', color: 'white', border: 'none', cursor: 'pointer' }}
           >
@@ -105,17 +110,22 @@ export function PreviewControls(p: PreviewControlsProps) {
               className="text-xs px-2 h-7 rounded"
               style={{ background: 'var(--color-bg-surface)', color: 'var(--color-text-secondary)', border: 'none', cursor: 'pointer' }}
               onClick={() => setShowSpeedMenu(v => !v)}
+              aria-label="Playback speed"
+              aria-haspopup="menu"
+              aria-expanded={showSpeedMenu}
             >
               {p.playbackSpeed}x
             </button>
             {showSpeedMenu && (
               <div
+                role="menu"
                 className="absolute bottom-9 right-0 rounded overflow-hidden shadow-lg z-50"
                 style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)' }}
               >
                 {PLAYBACK_SPEEDS.map(s => (
                   <button
                     key={s}
+                    role="menuitem"
                     onClick={() => { p.onSetPlaybackSpeed(s); setShowSpeedMenu(false) }}
                     className="block w-full px-4 py-1.5 text-xs text-left"
                     style={{
@@ -134,6 +144,9 @@ export function PreviewControls(p: PreviewControlsProps) {
           {/* Volume */}
           <button
             onClick={p.onToggleMuted}
+            title={p.muted ? 'Unmute' : 'Mute'}
+            aria-label={p.muted ? 'Unmute' : 'Mute'}
+            aria-pressed={p.muted}
             style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)' }}
           >
             {p.muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
@@ -142,6 +155,7 @@ export function PreviewControls(p: PreviewControlsProps) {
             type="range" min={0} max={1} step={0.01}
             value={p.muted ? 0 : p.volume}
             onChange={e => p.onVolume(+e.target.value)}
+            aria-label="Volume"
             style={{ width: 64 }}
           />
 
@@ -150,7 +164,11 @@ export function PreviewControls(p: PreviewControlsProps) {
             / {formatTime(p.duration)}
           </span>
 
-          <CtrlBtn icon={<Maximize2 size={15} />} onClick={() => {}} title="Fullscreen" />
+          <CtrlBtn
+            icon={p.isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+            onClick={p.onToggleFullscreen}
+            title={p.isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+          />
         </div>
       </div>
     </div>

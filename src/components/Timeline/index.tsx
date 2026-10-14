@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Plus, Scissors, Trash2 } from 'lucide-react'
 import { Copy, Clipboard } from 'lucide-react'
-import { useEditorStore } from '../../store/editorStore'
-import { MEDIA_DRAG_MIME, makeAudioClipFromMedia, makeClipFromMedia } from '../../shared/clip-factory'
+import { selectHasSelection, useEditorStore } from '../../store/editorStore'
+import { copyClipAfter, MEDIA_DRAG_MIME, makeAudioClipFromMedia, makeClipFromMedia } from '../../shared/clip-factory'
+import type { Splittable } from '../../shared/clip-split'
 import { AudioClipItem, StickerClipItem, TextClipItem, TrackLabel, VideoClipItem } from './ClipItems'
 import { ContextMenu, type ContextMenuEntry } from './ContextMenu'
 import type { AudioClip, Clip, StickerClip, TextClip, Track } from '../../types'
@@ -28,8 +29,9 @@ export function Timeline() {
     splitClip, splitAudioClip, splitTextClip, splitStickerClip,
     removeClip, removeTextClip, removeStickerClip, removeAudioClip,
     addTrack, addClip, addAudioClip, addTextClip, addStickerClip,
-    rippleDelete,
+    rippleDelete, splitAtPlayhead, deleteSelection,
   } = useEditorStore()
+  const hasSelection = useEditorStore(selectHasSelection)
 
   const timelineRef = useRef<HTMLDivElement>(null)
   const [dropTrackId, setDropTrackId] = useState<string | null>(null)
@@ -83,80 +85,33 @@ export function Timeline() {
     return best
   }
 
-  function handleSplitSelected() {
-    selectedClipIds.forEach(id => splitClip(id, currentTime))
-    selectedAudioIds.forEach(id => splitAudioClip(id, currentTime))
-    selectedTextIds.forEach(id => splitTextClip(id, currentTime))
-    selectedStickerIds.forEach(id => splitStickerClip(id, currentTime))
-    clearSelection()
-  }
-
-  function handleDeleteSelected() {
-    selectedClipIds.forEach(id => removeClip(id))
-    selectedAudioIds.forEach(id => removeAudioClip(id))
-    selectedTextIds.forEach(id => removeTextClip(id))
-    selectedStickerIds.forEach(id => removeStickerClip(id))
-    clearSelection()
-  }
-
-  function handleDuplicateSelected() {
-    const gap = 0.1
-    selectedClipIds.forEach(id => {
-      const c = project.clips.find(x => x.id === id)
-      if (c) addClip({ ...c, id: crypto.randomUUID(), startTime: c.startTime + c.duration + gap })
-    })
-    selectedAudioIds.forEach(id => {
-      const c = project.audioClips.find(x => x.id === id)
-      if (c) addAudioClip({ ...c, id: crypto.randomUUID(), startTime: c.startTime + c.duration + gap })
-    })
-    selectedTextIds.forEach(id => {
-      const c = project.textClips.find(x => x.id === id)
-      if (c) addTextClip({ ...c, id: crypto.randomUUID(), startTime: c.startTime + c.duration + gap })
-    })
-    selectedStickerIds.forEach(id => {
-      const c = project.stickerClips.find(x => x.id === id)
-      if (c) addStickerClip({ ...c, id: crypto.randomUUID(), startTime: c.startTime + c.duration + gap })
-    })
-  }
-
-  function handlePasteClipboard() {
+  // Reads the store through getState() so the callback's identity changes only
+  // with the clipboard - which is exactly what the keydown effect depends on.
+  const handlePasteClipboard = useCallback(() => {
     if (!clipboard) return
     const { kind, data } = clipboard
-    const base = data as { startTime: number; duration: number }
-    const newId = crypto.randomUUID()
-    const newClip = { ...(data as object), id: newId, startTime: base.startTime + base.duration + 0.1 } as never
-    if (kind === 'video') addClip(newClip as Clip)
-    else if (kind === 'text') addTextClip(newClip as TextClip)
-    else if (kind === 'audio') addAudioClip(newClip as AudioClip)
-    else addStickerClip(newClip as StickerClip)
-  }
+    const st = useEditorStore.getState()
+    const newClip = copyClipAfter(data as Splittable)
+    if (kind === 'video') st.addClip(newClip as Clip)
+    else if (kind === 'text') st.addTextClip(newClip as TextClip)
+    else if (kind === 'audio') st.addAudioClip(newClip as AudioClip)
+    else st.addStickerClip(newClip as StickerClip)
+  }, [clipboard])
 
-  const hasSelection = selectedClipIds.length > 0 || selectedTextIds.length > 0
-    || selectedStickerIds.length > 0 || selectedAudioIds.length > 0
-
+  // Split, duplicate and delete are bound once in App.tsx. This listener only
+  // owns paste, which needs the clipboard state kept above.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const tag = (e.target as HTMLElement).tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
-      const mod = e.metaKey || e.ctrlKey
-      if (e.key === 's' || e.key === 'S') {
-        if (!mod) { e.preventDefault(); handleSplitSelected() }
-      }
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (hasSelection) { e.preventDefault(); handleDeleteSelected() }
-      }
-      if (mod && e.code === 'KeyD') {
-        e.preventDefault()
-        handleDuplicateSelected()
-      }
-      if (mod && e.code === 'KeyV') {
+      if ((e.metaKey || e.ctrlKey) && e.code === 'KeyV') {
         e.preventDefault()
         handlePasteClipboard()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  })
+  }, [handlePasteClipboard])
 
   // Click on ruler to seek
   function handleRulerClick(e: React.MouseEvent) {
@@ -364,8 +319,7 @@ export function Timeline() {
     function doDuplicate() {
       const clip = getClipData()
       if (!clip) return
-      const offset = 0.1
-      const newClip = { ...clip, id: crypto.randomUUID(), startTime: (clip as { startTime: number }).startTime + (clip as { duration: number }).duration + offset } as never
+      const newClip = copyClipAfter(clip as Splittable)
       if (kind === 'video') addClip(newClip as Clip)
       else if (kind === 'text') addTextClip(newClip as TextClip)
       else if (kind === 'audio') addAudioClip(newClip as AudioClip)
@@ -517,14 +471,14 @@ export function Timeline() {
         </button>
         <button
           className="text-xs px-2 h-6 rounded flex items-center gap-1"
-          title="Split di posisi playhead (S)"
+          title="Split di posisi playhead (⌘B)"
           style={{
             background: hasSelection ? 'var(--color-bg-surface)' : 'transparent',
             color: hasSelection ? 'var(--color-text-secondary)' : 'var(--color-text-muted)',
             border: 'none', cursor: hasSelection ? 'pointer' : 'default',
             opacity: hasSelection ? 1 : 0.4,
           }}
-          onClick={handleSplitSelected}
+          onClick={splitAtPlayhead}
           disabled={!hasSelection}
         >
           <Scissors size={11} /> Split
@@ -538,7 +492,7 @@ export function Timeline() {
             border: 'none', cursor: hasSelection ? 'pointer' : 'default',
             opacity: hasSelection ? 1 : 0.4,
           }}
-          onClick={handleDeleteSelected}
+          onClick={deleteSelection}
           disabled={!hasSelection}
         >
           <Trash2 size={11} /> Hapus

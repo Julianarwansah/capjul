@@ -4,14 +4,15 @@ import {
   FilePlus, FolderOpen, Share2, Scissors, Copy, Trash2,
   ZoomIn, ZoomOut, Grid3X3, Layers
 } from 'lucide-react'
-import { useEditorStore } from '../store/editorStore'
+import { selectHasSelection, useEditorStore } from '../store/editorStore'
 
 export function TopBar() {
   const {
     project, setProjectName, undo, redo, history, historyIndex,
     setShowExportDialog, setShowProjectSettings, newProject,
-    zoom, setZoom, selectedClipIds, removeClip, clearSelection
+    zoom, setZoom, splitAtPlayhead, duplicateSelection, deleteSelection,
   } = useEditorStore()
+  const hasSelection = useEditorStore(selectHasSelection)
 
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState(project.name)
@@ -40,11 +41,6 @@ export function TopBar() {
 
   function handleNew() {
     if (confirm('Start new project? Unsaved changes will be lost.')) newProject()
-  }
-
-  function handleDeleteSelected() {
-    selectedClipIds.forEach(id => removeClip(id))
-    clearSelection()
   }
 
   return (
@@ -87,13 +83,23 @@ export function TopBar() {
         className="flex items-center gap-1"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
-        <TopBtn icon={<Scissors size={15} />} title="Split" onClick={() => {}} />
-        <TopBtn icon={<Copy size={15} />} title="Duplicate" onClick={() => {}} />
+        <TopBtn
+          icon={<Scissors size={15} />}
+          title="Split at playhead (⌘B)"
+          onClick={splitAtPlayhead}
+          disabled={!hasSelection}
+        />
+        <TopBtn
+          icon={<Copy size={15} />}
+          title="Duplicate (⌘D)"
+          onClick={duplicateSelection}
+          disabled={!hasSelection}
+        />
         <TopBtn
           icon={<Trash2 size={15} />}
-          title="Delete selected"
-          onClick={handleDeleteSelected}
-          disabled={selectedClipIds.length === 0}
+          title="Delete selected (Delete)"
+          onClick={deleteSelection}
+          disabled={!hasSelection}
         />
       </div>
 
@@ -174,6 +180,7 @@ function TopBtn({
   return (
     <button
       title={title}
+      aria-label={title}
       onClick={onClick}
       disabled={disabled}
       className="topbar-btn"
