@@ -95,38 +95,36 @@ Owner: unowned until it measures slow.
 
 ### D13 — The 300-line threshold has been crossed again (was D6)
 D6 was marked resolved in `12f1f1a` and that was accurate at the time. It is not
-now. Eight files remain over the threshold:
+now. Seven files remain over the threshold:
 
 | File | Lines |
 |---|---|
-| `src/components/Timeline/index.tsx` | 728 |
 | `src/components/RightPanel.tsx` | 571 |
 | `src/store/editorStore.ts` | 470 |
 | `src/components/ExportDialog.tsx` | 438 |
 | `src/shared/render-plan.ts` | 417 |
-| `src/components/Preview/index.tsx` | 370 |
+| `src/components/Preview/index.tsx` | 371 |
 | `electron/main.ts` | 354 |
 | `src/components/Timeline/ClipItems.tsx` | 325 |
 
-The worst offender is done. `PreviewPanel.tsx` (770) became `Preview/` with the
-transition style table and the active-transition query moved to
-`shared/transitions.ts`, the media layer stack to `MediaLayers.tsx`, text and
-sticker and caption and effect overlays to `Overlays.tsx`, the floating button
-clusters to `Toolbar.tsx`, and audio element management and chroma key to two
-hooks. The orchestrator is 370 lines and the six files it delegates to are all
-under 270. It stopped short of 300 on purpose: what is left is store wiring,
-refs, the video sync effects, the playback loop and the drag handler, and
+The two worst offenders are done, and both are recorded under "Resolved" with
+what they were split into. `PreviewPanel.tsx` went 770 → 371 and
+`Timeline/index.tsx` went 728 → 197.
+
+`Preview/index.tsx` stopped short of 300 deliberately: what remains is store
+wiring, refs, the video sync effects, the playback loop and the drag handler, and
 splitting those further would scatter playback logic rather than clarify it.
 
-The rest is feature work landing in the same few files — keyframes, the Phase 2
-compositor, the selection-wide store actions — not neglect, and nothing here is
-broken. The real cost is that the register's "every file is under 300 lines"
-claim went stale and nobody noticed, which matters more than the line counts:
-the register is supposed to record measurement, not aspiration.
-Impact: maintainability; the next feature is likely to land in a 700-line file too.
-Effort: `Timeline` about a day — the clip item rendering, marquee selection,
-drag/resize and context menu are four separable concerns still in one file. The
-rest opportunistically.
+What is left is mostly different in kind. `RightPanel` is four inspector panels
+in one file and splits cleanly by clip kind. `editorStore` is long because it is
+the single choke point for every mutation — length there is concentration, not
+tangle, and splitting it would work against the property that makes `mutate()`
+safe. `render-plan.ts` and `electron/main.ts` are one coherent job each.
+`ClipItems.tsx` is four sibling components that could each be their own file.
+Impact: maintainability. The remaining files are less urgent than the two that
+were fixed, and none is broken.
+Effort: `RightPanel` and `ClipItems` about half a day each; `editorStore` is
+arguably not worth splitting at all.
 Owner: next engineering slot.
 
 ### D16 — The preview does not consume compileScene, contrary to its own comment
@@ -165,6 +163,22 @@ Impact: minor editing friction, inconsistent between clip kinds.
 Effort: one line plus updating that test. Held back only because it changes how
 dragging feels, which is a judgement call rather than a bug fix.
 Owner: **Julian** for whether stickers should snap; engineering for the line.
+
+### D20 — The timeline ruler seeks by mouse only
+`Ruler.tsx` is a `div` with an `onClick` that seeks to the clicked time. No
+`tabIndex`, no keyboard handling, no focus indicator — the same defect D14 fixed
+on the preview's progress bar, on the editor's other seek surface.
+
+D14 is recorded as resolved and that is accurate for what it covered, but it
+would overstate things to leave this unfiled: there are two scrubbers in the app
+and only one of them is keyboard-operable. In practice the transport controls and
+the arrow/JKL shortcuts in `App.tsx` do cover keyboard seeking, so this is less
+severe than D14 was — the ruler is a convenience surface, not the only way in.
+Impact: accessibility, WCAG 2.1 AA 2.1.1 on that element. Mitigated by the global
+shortcuts already existing.
+Effort: ~1 hour, and cheaper than D14 was because `role="slider"` plus the arrow
+handling can be copied from `PreviewControls`, which already has both.
+Owner: next engineering slot.
 
 ## Resolved during this hardening pass
 
@@ -342,3 +356,27 @@ Kept here for traceability; each has a commit.
   and that audio and text clips are snap targets while **sticker clips are not** —
   an omission the old code made silently, now recorded as D19 so that adding
   stickers fails a test instead of happening by accident.
+- `Timeline/index.tsx` went 728 → 197 lines (part of D13). Out came
+  `TrackRow.tsx` (one track lane: grid, its clips, transition markers),
+  `Ruler.tsx` (ticks, labels, playhead marker), `TimelineToolbar.tsx` (add track,
+  split, delete, zoom), `useClipContextMenu.tsx` (the right-click menu and the
+  copy/paste clipboard it feeds) and `useMarqueeSelection.ts` (rubber-band
+  selection). What is left in the orchestrator is layout, scroll and drop
+  handling.
+- The seven near-identical mouse handlers in `Timeline` — four for moving a clip
+  and three for trimming one — collapsed into `startClipMove` and `startClipTrim`
+  in `Timeline/clip-interaction.ts`, with the arithmetic behind them moved to
+  `shared/clip-drag.ts` as pure functions and 17 tests. Two of the three trimming
+  handlers had been mathematically identical, which is how the clamped-delta bug
+  above survived in more than one copy; there is now one copy and it is tested.
+  Those tests assert the negative direction explicitly, so the bug cannot return
+  quietly.
+- Menu actions and marquee release now read the store with `getState()` at the
+  moment they fire rather than capturing it when the menu opened or the drag
+  started. A clip menu left open while the playhead moves used to split at the
+  stale time.
+- Verified after the split with a 13-check browser run: toolbar disabled state,
+  drag right and left, trim from both handles in both directions, context menu
+  opening with all five entries in order, Duplikat adding a clip and dismissing
+  the menu, marquee selecting and clearing its box, and zero page errors
+  throughout.
