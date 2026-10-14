@@ -46,23 +46,32 @@ than "presets do not export" sounded.
 
 ### D15 — Transitions are preview-only and vanish on export
 `TransitionsPanel` creates real `project.transitions` entries, including
-"apply to all" across a track. `PreviewPanel` renders them through
-`transitionStyles()` — 11 types: fade, dissolve, four wipes, two slides, two
-zooms, blur, flash. Nothing on the export side ever reads them: `transitions`
-appears nowhere in `render-plan.ts` or `compositor.ts`, only in
-`project-schema.ts` and test fixtures.
+"apply to all" across a track. The preview renders them through
+`transitionStyles()` in `shared/transitions.ts` — 12 types: fade, dissolve, four
+wipes, two slides, two zooms, blur and flash — applied in `MediaLayers.tsx`, with
+a marker drawn on the cut in `TrackRow.tsx`. Nothing on the export side ever
+reads them: `transitions` appears nowhere in `render-plan.ts`, `scene.ts` or
+`compositor.ts`, only in `project-schema.ts` and test fixtures.
 
 So a crossfade the user picked, saw working in the preview, and then exported is
 silently dropped. Unlike D7's disabled sliders there is no hint that the feature
 does not reach the output — the preview actively demonstrates it working, which
 makes this a worse promise to break.
 Impact: user trust and output correctness. This is a whole feature, not a field.
-Effort: ~1-2 days. `xfade` in the filtergraph for video-to-video on one track,
-but the current `RenderPlan` compiles each clip to its own trimmed stream, so
-transitions need adjacent streams paired with an offset — a structural change to
-how the video graph is assembled, not a filter appended to the existing one.
+Effort: 2-3 days, and larger than first estimated. The original note assumed this
+was a filtergraph problem. It is not: `scene.ts` and `compositor.ts` contain zero
+references to transitions either, and the compositor is the **default** export
+engine. So both engines have to learn transitions independently, and then agree.
+Concretely: the scene model has to carry transitions and widen both clips'
+windows by half the duration (the preview already straddles the cut this way),
+`drawMediaLayer` has to paint two clips at complementary alpha, `render-plan` has
+to pair adjacent streams rather than compile each clip to an independent trimmed
+stream, and `parity.test.ts` has to pin that the two produce the same blend at
+the same instant. `xfade`, `fade` and `overlay` are all confirmed present in
+ffmpeg 8.1.1, so no capability is missing — only the assembly.
 Owner: next engineering slot; **Julian** if the answer is to cut transitions from
-the UI instead.
+the UI instead. Cutting is roughly an hour and would close the same broken
+promise from the other direction.
 
 ### D9 — External tooling commits and pushes without instruction
 Four times now an unidentified tool in this environment created commits and
@@ -187,22 +196,6 @@ Effort: the comment is a one-line correction. Actually migrating the preview to
 layers, so it is a real project, not a cleanup.
 Owner: next engineering slot. Correct the comment immediately; schedule the
 migration alongside D7, since both touch the same preview render path.
-
-### D20 — The timeline ruler seeks by mouse only
-`Ruler.tsx` is a `div` with an `onClick` that seeks to the clicked time. No
-`tabIndex`, no keyboard handling, no focus indicator — the same defect D14 fixed
-on the preview's progress bar, on the editor's other seek surface.
-
-D14 is recorded as resolved and that is accurate for what it covered, but it
-would overstate things to leave this unfiled: there are two scrubbers in the app
-and only one of them is keyboard-operable. In practice the transport controls and
-the arrow/JKL shortcuts in `App.tsx` do cover keyboard seeking, so this is less
-severe than D14 was — the ruler is a convenience surface, not the only way in.
-Impact: accessibility, WCAG 2.1 AA 2.1.1 on that element. Mitigated by the global
-shortcuts already existing.
-Effort: ~1 hour, and cheaper than D14 was because `role="slider"` plus the arrow
-handling can be copied from `PreviewControls`, which already has both.
-Owner: next engineering slot.
 
 ### D21 — The filtergraph engine rounds keyframe coefficients to 4 decimals
 `volumeExpression` in `render-plan.ts` passes every coefficient it emits through
@@ -500,3 +493,24 @@ Kept here for traceability; each has a commit.
   present as an object (the preload bridge working — it has been broken before),
   eight sidebar tabs with AI Tools correctly absent, the transport slider there,
   and zero page errors. `Info.plist` carries `com.capjul.editor` and `CapJul`.
+- The timeline ruler is a real slider (was D20). `role="slider"` with
+  `aria-valuetext` in timecode, focusable, arrow keys to step (shift for five
+  seconds) and Home/End. It stops propagation for the same reason the preview
+  scrubber does: `App.tsx` binds the same arrows globally, so without it one
+  keypress would seek twice. There are now two `role="slider"` elements in the
+  app, distinguished by `aria-label` — "Timeline position" and "Seek".
+- **Stepping the playhead no longer drifts.** Found by the browser check above
+  rather than by reading: after thirty ArrowRight presses at 30fps the ruler read
+  `0:00`, not `0:01`. The playhead was at `0.9999999999999999` — 1.11e-16 short
+  of a second, because every step did `currentTime + 1/fps` and the errors
+  accumulated. The timecode truncates, which is correct for a timecode, so the
+  deficit showed up as a whole missing second.
+  `shared/frame-time.ts` now steps in whole frames via
+  `Math.round(t * fps) + frames`, and `App.tsx`'s arrow, J/L and comma/period
+  handlers use it too, so all three seek surfaces share one stepping rule and
+  always land on the frame grid. Seven tests, including that 3,000 steps forward
+  and back return exactly to zero and that 23.976fps — where naive accumulation
+  drifts worst — stays exact.
+  One deliberate behaviour change: stepping from a time that came from a
+  click-seek now snaps to the nearest frame first. For a frame-based editor that
+  is the correct behaviour, but it is a change.

@@ -134,7 +134,9 @@ export function Timeline() {
               duration={timelineDuration}
               pxPerSec={pxPerSec}
               currentTime={currentTime}
+              fps={project.fps}
               onClick={handleRulerClick}
+              onSeek={t => setCurrentTime(Math.min(project.duration, t))}
             />
 
             {/* Marquee selection box */}

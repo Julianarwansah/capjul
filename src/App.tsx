@@ -7,6 +7,7 @@ import { Timeline } from './components/Timeline'
 import { ExportDialog } from './components/ExportDialog'
 import { ProjectSettings } from './components/ProjectSettings'
 import { useEditorStore } from './store/editorStore'
+import { stepFrames } from './shared/frame-time'
 import type { ElectronApi, RecoveryInfo } from './shared/ipc-contract'
 
 declare global {
@@ -95,6 +96,15 @@ export default function App() {
 
     const mod = e.metaKey || e.ctrlKey
 
+    // Stepping in whole frames rather than adding 1/fps: repeated addition
+    // drifts (thirty steps at 30fps land 1.11e-16 short of a second), and the
+    // timecode truncates, so it then displays the wrong second.
+    const fps = project.fps
+    const seekBy = (frames: number) =>
+      setCurrentTime(Math.max(0, Math.min(project.duration, stepFrames(currentTime, fps, frames))))
+    const second = Math.round(fps)
+    const fiveSeconds = Math.round(5 * fps)
+
     if (e.code === 'Space') {
       e.preventDefault()
       setIsPlaying(!isPlaying)
@@ -121,10 +131,10 @@ export default function App() {
       duplicateSelection()
     } else if (e.code === 'ArrowLeft') {
       e.preventDefault()
-      setCurrentTime(Math.max(0, currentTime - (e.shiftKey ? 5 : 1 / project.fps)))
+      seekBy(e.shiftKey ? -fiveSeconds : -1)
     } else if (e.code === 'ArrowRight') {
       e.preventDefault()
-      setCurrentTime(Math.min(project.duration, currentTime + (e.shiftKey ? 5 : 1 / project.fps)))
+      seekBy(e.shiftKey ? fiveSeconds : 1)
     } else if (e.code === 'Home') {
       setCurrentTime(0)
     } else if (e.code === 'End') {
@@ -137,21 +147,21 @@ export default function App() {
       useEditorStore.getState().setZoom(useEditorStore.getState().zoom - 20)
     } else if (e.code === 'KeyJ') {
       e.preventDefault()
-      setCurrentTime(Math.max(0, currentTime - (e.shiftKey ? 5 : 1)))
+      seekBy(e.shiftKey ? -fiveSeconds : -second)
     } else if (e.code === 'KeyK') {
       e.preventDefault()
       setIsPlaying(false)
     } else if (e.code === 'KeyL') {
       e.preventDefault()
-      setCurrentTime(Math.min(project.duration, currentTime + (e.shiftKey ? 5 : 1)))
+      seekBy(e.shiftKey ? fiveSeconds : second)
     } else if (e.code === 'Comma') {
       // Previous frame
       e.preventDefault()
-      setCurrentTime(Math.max(0, currentTime - 1 / project.fps))
+      seekBy(-1)
     } else if (e.code === 'Period') {
       // Next frame
       e.preventDefault()
-      setCurrentTime(Math.min(project.duration, currentTime + 1 / project.fps))
+      seekBy(1)
     }
   }, [
     isPlaying, currentTime, project,

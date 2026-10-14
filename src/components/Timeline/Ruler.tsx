@@ -1,6 +1,8 @@
-// The time ruler above the tracks: ticks, labels, and the playhead marker.
-// Clicking it seeks; the coordinate maths stays in the Timeline, which owns the
-// scroll container this is measured against.
+// The time ruler above the tracks: ticks, labels, and the playhead marker. It is
+// also the timeline's seek surface, so it is a real slider - focusable,
+// announced, and operable with the keyboard rather than only by clicking.
+
+import { stepFrames } from '../../shared/frame-time'
 
 function formatTime(s: number) {
   const m = Math.floor(s / 60)
@@ -23,10 +25,13 @@ export interface RulerProps {
   duration: number
   pxPerSec: number
   currentTime: number
+  fps: number
   onClick: (e: React.MouseEvent) => void
+  /** Receives an unclamped target time; the caller owns the real project bounds. */
+  onSeek: (t: number) => void
 }
 
-export function Ruler({ height, duration, pxPerSec, currentTime, onClick }: RulerProps) {
+export function Ruler({ height, duration, pxPerSec, currentTime, fps, onClick, onSeek }: RulerProps) {
   const interval = tickInterval(pxPerSec)
   const ticks = []
   for (let t = 0; t <= duration; t += interval) {
@@ -44,8 +49,36 @@ export function Ruler({ height, duration, pxPerSec, currentTime, onClick }: Rule
     )
   }
 
+  function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    // Stepping in whole frames rather than adding 1/fps: repeated addition
+    // drifts, and a truncating timecode then shows the wrong second.
+    const frames = e.shiftKey ? Math.round(5 * fps) : 1
+    let next: number
+    switch (e.key) {
+      case 'ArrowLeft': next = stepFrames(currentTime, fps, -frames); break
+      case 'ArrowRight': next = stepFrames(currentTime, fps, frames); break
+      case 'Home': next = 0; break
+      case 'End': next = duration; break
+      default: return
+    }
+    // App.tsx binds these same keys globally. Without stopping propagation one
+    // keypress would seek twice, which is exactly the bug the preview scrubber
+    // had to guard against.
+    e.preventDefault()
+    e.stopPropagation()
+    onSeek(next)
+  }
+
   return (
     <div
+      role="slider"
+      tabIndex={0}
+      aria-label="Timeline position"
+      aria-orientation="horizontal"
+      aria-valuemin={0}
+      aria-valuemax={duration}
+      aria-valuenow={currentTime}
+      aria-valuetext={formatTime(currentTime)}
       className="sticky top-0 relative cursor-pointer"
       style={{
         height, zIndex: 10,
@@ -53,6 +86,7 @@ export function Ruler({ height, duration, pxPerSec, currentTime, onClick }: Rule
         borderBottom: '1px solid var(--color-border)',
       }}
       onClick={onClick}
+      onKeyDown={onKeyDown}
     >
       {ticks}
 
