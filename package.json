@@ -2,6 +2,8 @@
   "name": "capjul",
   "private": true,
   "version": "0.0.0",
+  "description": "CapJul — a timeline video editor built on Electron and ffmpeg",
+  "author": "Julian Arwansah",
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -12,21 +14,22 @@
     "test:watch": "vitest",
     "electron:dev": "VITE_DEV_SERVER_URL=http://localhost:5173 NODE_ENV=development concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "dist:mac:unsigned": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac"
   },
-  "dependencies": {
-    "@radix-ui/react-dialog": "^1.3.0",
-    "@tailwindcss/vite": "^4.3.3",
-    "lucide-react": "^1.55.0",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "tailwindcss": "^4.3.3",
-    "zod": "^4.6.7",
-    "zustand": "^5.0.15"
-  },
+  "dependencies": {},
   "build": {
     "appId": "com.capjul.editor",
     "productName": "CapJul",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
     "files": [
       "dist/**/*",
       "dist-electron/**/*"
@@ -39,10 +42,13 @@
       "target": "nsis"
     },
     "linux": {
-      "target": "AppImage"
+      "target": "AppImage",
+      "category": "Video"
     }
   },
   "devDependencies": {
+    "@radix-ui/react-dialog": "^1.3.0",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
@@ -50,12 +56,18 @@
     "concurrently": "^9.2.5",
     "electron": "^44.7.0",
     "electron-builder": "^26.15.3",
+    "lucide-react": "^1.55.0",
     "oxlint": "^1.81.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",
     "vite-plugin-electron": "^1.1.2",
     "vite-plugin-electron-renderer": "^1.0.0",
     "vitest": "^5.0.4",
-    "wait-on": "^8.0.5"
+    "wait-on": "^8.0.5",
+    "zod": "^4.6.7",
+    "zustand": "^5.0.15"
   }
 }

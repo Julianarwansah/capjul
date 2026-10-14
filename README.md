@@ -41,10 +41,50 @@ npm run electron:dev
 | `npm run dev` | Renderer only, in a browser |
 | `npm run typecheck` | `tsc -b` across `src/`, `electron/`, and `vite.config.ts` |
 | `npm run lint` | oxlint (config in `.oxlintrc.json`) |
+| `npm test` | Vitest, single run (`test:watch` to watch) |
 | `npm run build` | `tsc -b` gate, then Vite build → `dist/` + `dist-electron/` |
 | `npm run preview` | Serve the production build locally |
+| `npm run pack` | Build, then package unpacked (no installer) → `release/<platform>/` |
+| `npm run dist:mac` | Build, then produce a `.dmg` → `release/` |
+| `npm run dist:mac:unsigned` | Same, with certificate discovery disabled for a local build |
+| `npm run dist:win` / `dist:linux` | NSIS installer / AppImage |
 
-Packaging targets (dmg / nsis / AppImage) are configured under the `build` key in `package.json` but have no npm script yet — run `npx electron-builder` directly.
+## Packaging
+
+Every `dist:*` script runs `npm run build` first, because packaging reads
+`dist/` and `dist-electron/`. Artifacts land in `release/`, which is gitignored.
+
+`release/` is deliberately **not** `dist/`. electron-builder's default output
+directory is `dist`, and it cleans that directory before writing — the same
+directory it was being told to package. Setting `directories.output` is what
+stops the build from deleting its own input.
+
+Nothing in `dependencies` is needed at runtime: Vite bundles the renderer into
+`dist/assets/` and the main process into `dist-electron/main.js`, whose only
+imports are `electron` and `node:` builtins. All eight former runtime
+dependencies are therefore `devDependencies`, which keeps them out of the asar.
+That is worth 42 MB — `lucide-react` alone is 45 MB unpacked. **If you add a
+dependency that the main process requires at runtime rather than imports at
+build time, it must go back into `dependencies`**, or the packaged app will fail
+with a missing-module error that never appears in development.
+
+`ffmpeg` and `ffprobe` are spawned from `PATH` and are not bundled, so a
+packaged app still needs them installed on the user's machine.
+
+### What is not done yet
+
+- **Code signing and notarization.** With no Developer ID certificate the build
+  is unsigned and macOS Gatekeeper will refuse to launch it on any machine but
+  the one that built it. Supply `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`,
+  `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` in the environment for a
+  distributable build. See `docs/tech-debt.md` D10.
+- **Application icon.** There is no `build/icon.icns`, so the packaged app wears
+  the default Electron icon. Drop a 1024×1024 `build/icon.icns` (plus
+  `icon.ico` and `icon.png` for Windows and Linux) and electron-builder picks it
+  up with no config change — `directories.buildResources` already points at
+  `build/`.
+- **`version` is `0.0.0`**, so artifacts are named `CapJul-0.0.0-*.dmg` and
+  `latest-mac.yml` cannot express an upgrade. Bump it before shipping anything.
 
 ## Layout
 

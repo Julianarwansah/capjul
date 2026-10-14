@@ -90,12 +90,34 @@ checkpoint settings; `git log --format='%h %ad %s' --date=iso` compared against
 when you were actually editing will show which ones are not yours.
 Owner: **Julian** — this is your environment, not the codebase.
 
-### D10 — No packaging script despite electron-builder config
-`package.json` has a `build` key (dmg/nsis/AppImage) but no script invokes it; signing
-and notarization are unaddressed.
-Impact: delivery — the app cannot reach a user outside this machine.
-Effort: 1 day including macOS signing/notarization decisions.
-Owner: **Julian** for signing identity; engineering for the pipeline.
+### D10 — Packaging works, but nothing it produces is distributable
+The pipeline itself is done and verified end to end — see "Resolved" for what was
+fixed and what a build produces. What is left is the part that cannot be done
+from inside the codebase:
+
+- **No code signing.** `electron-builder` reports `0 identities found` and skips
+  signing, so the `.dmg` it produces is unsigned. macOS Gatekeeper refuses to
+  launch an unsigned, un-notarized app on any machine other than the one that
+  built it, and even there the user gets a quarantine warning. This needs a
+  Developer ID Application certificate — an Apple Developer account, not a
+  config change.
+- **No notarization.** Requires `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and
+  `APPLE_TEAM_ID`, and depends on signing existing first.
+- **No application icon.** There is no `build/icon.icns`, so the packaged app
+  wears the default Electron icon. `directories.buildResources` already points at
+  `build/`, so dropping icons in needs no config change — but designing one is
+  not an engineering task.
+- **`version` is still `0.0.0`**, so artifacts are named `CapJul-0.0.0-arm64.dmg`
+  and `latest-mac.yml` cannot express an upgrade. Bumping it is a release
+  decision.
+
+Impact: delivery. A build can be produced on this machine and run on this
+machine, which is further than before, but it still cannot reach a user.
+Effort: signing and notarization are under an hour of configuration once the
+certificate and Apple credentials exist; the icon is a design task; the version
+bump is a decision.
+Owner: **Julian** — every remaining item needs an account, a credential or a
+design, none of which is in the repo.
 
 ## P3
 
@@ -447,3 +469,34 @@ Kept here for traceability; each has a commit.
   left out, so stickers neither snapped to each other nor offered their edges to
   anything else. The test that pinned the omission was inverted rather than
   deleted, so it now pins the fix.
+- Packaging has scripts and produces a working artifact (was most of D10). Added
+  `pack`, `dist`, `dist:mac`, `dist:win`, `dist:linux` and `dist:mac:unsigned`,
+  each running `npm run build` first because packaging reads `dist/` and
+  `dist-electron/`. Also added the `description` and `author` fields
+  electron-builder wants, and `linux.category` for AppImage.
+- **The builder's output directory was `dist/`, which is also its input.**
+  electron-builder defaults `directories.output` to `dist` and cleans it before
+  writing, while `build.files` said to package `dist/**/*` — so a build would
+  have deleted the thing it was packaging. Output now goes to `release/`, which
+  is gitignored. This had never been hit because no script invoked the builder.
+- All eight runtime dependencies moved to `devDependencies`, because none of them
+  is needed at runtime: Vite bundles the renderer into `dist/assets/` and the
+  main process into `dist-electron/main.js`, and that bundle's only imports are
+  `electron` and seven `node:` builtins — verified by listing every import
+  specifier, not assumed. ffmpeg and ffprobe are spawned from `PATH`, not
+  resolved through a package. electron-builder still copies production
+  dependencies into the asar regardless of `build.files`, which is how 5,932
+  files and 42 MB of dead weight got in; `lucide-react` alone is 45 MB unpacked.
+  `app.asar` went 43 MB → 596 KB and the app bundle 342 MB → 289 MB, the
+  remainder being Electron itself. The README now says plainly that a dependency
+  the main process needs at *runtime* has to go back into `dependencies`, or the
+  packaged app breaks in a way development never shows.
+- Verified by building and running the real thing rather than by reading config:
+  `dist:mac` produced `CapJul-0.0.0-arm64.dmg` (122 MB), `hdiutil verify`
+  reported the checksum valid, the volume mounted with the standard
+  drag-to-install layout, and `latest-mac.yml` carried a correct version, sha512
+  and size. Then the packaged app was launched with a debugging port and
+  inspected from inside: 511 DOM nodes so React mounted, `window.electronAPI`
+  present as an object (the preload bridge working — it has been broken before),
+  eight sidebar tabs with AI Tools correctly absent, the transport slider there,
+  and zero page errors. `Info.plist` carries `com.capjul.editor` and `CapJul`.
