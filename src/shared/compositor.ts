@@ -123,6 +123,11 @@ export async function prepareScene(
     ctx.save()
     if (layer.filter) ctx.filter = layer.filter
     ctx.globalAlpha = tr.opacity
+    // Order matters and is a contract, not a style choice: the preview emits its
+    // CSS transform in POSE_TRANSFORM_ORDER (scene.ts) to match these three calls.
+    // Rotation and non-uniform scale do not commute, so reordering one side
+    // without the other silently changes the result. They did diverge once; see
+    // docs/tech-debt.md, D18 (resolved).
     ctx.translate(W / 2 + tr.x * W, H / 2 + tr.y * H)
     ctx.rotate(tr.rotation * Math.PI / 180)
     ctx.scale(tr.scaleX, tr.scaleY)

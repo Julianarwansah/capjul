@@ -4,8 +4,8 @@ import { layoutText } from './text-layout'
 import { stickerPlacement } from './text-rasterizer'
 import { STICKER_BASE_RATIO } from './sticker-assets'
 import { overlayOrigin, type RenderLayer } from './render-plan'
-import { clipTransformAt, compileScene, textTransformAt, transformAt } from './scene'
-import type { SceneImageLayer, SceneVideoLayer } from './scene'
+import { POSE_TRANSFORM_ORDER, clipTransformAt, compileScene, poseTransformCss, textTransformAt, transformAt } from './scene'
+import type { SceneImageLayer, SceneTransform, SceneVideoLayer } from './scene'
 import type { Clip, MediaFile, Project, StickerClip, TextClip } from './project-schema'
 
 // Parity here is structural, not pixel-level: CSS rasterization and canvas
@@ -201,5 +201,93 @@ describe('media layer pose parity', () => {
     const layer = compileScene(withClip('image', POSE)).layers[0] as SceneImageLayer
     expect(clipTransformAt(clip, 0)).toEqual(transformAt(layer.keyframes, layer.transform, 0))
     expect(clipTransformAt(clip, 0)).toMatchObject(POSE)
+  })
+})
+
+// The pose tests above compare six numbers, and those numbers are identical
+// whichever order the operations are applied in. So they cannot catch D18: the
+// preview emitting translate/scale/rotate while the compositor applies
+// translate/rotate/scale. Pinning that needs the operations composed, not listed.
+describe('pose transform order parity', () => {
+  // Row-major 3x3 homogeneous matrices, so composition order is comparable
+  // rather than something the test has to take on faith.
+  type Mat = number[]
+  const IDENTITY: Mat = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+
+  function mul(a: Mat, b: Mat): Mat {
+    const out = new Array<number>(9).fill(0)
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 3; c++) {
+        for (let k = 0; k < 3; k++) out[r * 3 + c] += a[r * 3 + k] * b[k * 3 + c]
+      }
+    }
+    return out
+  }
+
+  const translate = (x: number, y: number): Mat => [1, 0, x, 0, 1, y, 0, 0, 1]
+  const rotate = (deg: number): Mat => {
+    const r = deg * Math.PI / 180
+    return [Math.cos(r), -Math.sin(r), 0, Math.sin(r), Math.cos(r), 0, 0, 0, 1]
+  }
+  const scale = (sx: number, sy: number): Mat => [sx, 0, 0, 0, sy, 0, 0, 0, 1]
+
+  const close = (a: Mat, b: Mat) => a.every((v, i) => Math.abs(v - b[i]) < 1e-9)
+  function expectClose(a: Mat, b: Mat) {
+    for (let i = 0; i < 9; i++) expect(a[i]).toBeCloseTo(b[i], 9)
+  }
+
+  function parseCss(css: string) {
+    return [...css.matchAll(/(translate|rotate|scale)\(([^)]*)\)/g)].map(m => ({
+      op: m[1],
+      args: m[2].split(',').map(s => parseFloat(s.trim())),
+    }))
+  }
+
+  /** A CSS transform list composes left to right, so the first operation ends up
+   *  outermost. Translate percentages are of the element's own box, which fills
+   *  the canvas, making them canvas fractions. */
+  function cssMatrix(css: string): Mat {
+    return parseCss(css).reduce<Mat>((acc, { op, args }) => {
+      if (op === 'translate') return mul(acc, translate(args[0] / 100 * W, (args[1] ?? 0) / 100 * H))
+      if (op === 'rotate') return mul(acc, rotate(args[0]))
+      return mul(acc, scale(args[0], args[1] ?? args[0]))
+    }, IDENTITY)
+  }
+
+  /** drawMediaLayer's call sequence. Its translate carries a W/2, H/2 offset
+   *  because canvas coordinates start at the corner; the preview gets the same
+   *  centring from inset-0 plus the default 50% 50% transform-origin, so both
+   *  sides are compared relative to the canvas centre. */
+  function canvasMatrix(tf: SceneTransform): Mat {
+    return mul(mul(translate(tf.x * W, tf.y * H), rotate(tf.rotation)), scale(tf.scaleX, tf.scaleY))
+  }
+
+  // Non-uniform scale with a rotation: the only combination where order is
+  // observable, and reachable from the panel's separate Scale X / Scale Y sliders.
+  const POSE: SceneTransform = { x: 0.2, y: -0.15, scaleX: 1.5, scaleY: 0.5, rotation: 30, opacity: 1 }
+
+  it('emits its operations in the order the compositor applies them', () => {
+    expect(parseCss(poseTransformCss(POSE)).map(o => o.op)).toEqual([...POSE_TRANSFORM_ORDER])
+  })
+
+  it('composes to the same matrix as the compositor', () => {
+    expectClose(cssMatrix(poseTransformCss(POSE)), canvasMatrix(POSE))
+  })
+
+  it('would not match with scale before rotate, so the order is load-bearing', () => {
+    const swapped = mul(mul(translate(POSE.x * W, POSE.y * H), scale(POSE.scaleX, POSE.scaleY)), rotate(POSE.rotation))
+    expect(close(swapped, canvasMatrix(POSE))).toBe(false)
+  })
+
+  it('hides the difference under a uniform scale, which is why it went unnoticed', () => {
+    const uniform: SceneTransform = { ...POSE, scaleX: 1.5, scaleY: 1.5 }
+    const swapped = mul(mul(translate(uniform.x * W, uniform.y * H), scale(uniform.scaleX, uniform.scaleY)), rotate(uniform.rotation))
+    expectClose(swapped, canvasMatrix(uniform))
+  })
+
+  it('also hides it with no rotation', () => {
+    const unrotated: SceneTransform = { ...POSE, rotation: 0 }
+    const swapped = mul(mul(translate(unrotated.x * W, unrotated.y * H), scale(unrotated.scaleX, unrotated.scaleY)), rotate(unrotated.rotation))
+    expectClose(swapped, canvasMatrix(unrotated))
   })
 })

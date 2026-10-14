@@ -142,6 +142,33 @@ export function transformAt(keyframes: Keyframe[], base: SceneTransform, t: numb
 }
 
 /**
+ * The order a resolved pose's operations must be applied. Shared by the
+ * preview's CSS transform string and the compositor's canvas call sequence,
+ * which is `ctx.translate`, `ctx.rotate`, `ctx.scale` in `drawMediaLayer` and
+ * `drawText` alike.
+ *
+ * This order is load-bearing. Rotation and non-uniform scale do not commute, so
+ * composing them the other way round on one side makes the two disagree whenever
+ * scaleX !== scaleY and rotation !== 0 - and agree exactly when the scale is
+ * uniform, which is why the mismatch once went unnoticed. See
+ * docs/tech-debt.md, D18 (resolved).
+ */
+export const POSE_TRANSFORM_ORDER = ['translate', 'rotate', 'scale'] as const
+
+/**
+ * CSS transform string for a media layer pose, in POSE_TRANSFORM_ORDER.
+ *
+ * A CSS transform list composes left to right, so emitting the operations in
+ * this order yields the same T·R·S matrix the canvas builds from the same call
+ * sequence. The translate percentages are relative to the element's own box, and
+ * that box fills the canvas, so they are canvas fractions in exactly the sense
+ * the compositor means by `tr.x * W`.
+ */
+export function poseTransformCss(tf: SceneTransform): string {
+  return `translate(${tf.x * 100}%, ${tf.y * 100}%) rotate(${tf.rotation}deg) scale(${tf.scaleX}, ${tf.scaleY})`
+}
+
+/**
  * Pose of a media clip at timeline time t. A media layer's x/y are offsets from
  * the canvas centre, unlike text and stickers whose x/y are absolute fractions.
  * A null clip resolves to the identity pose so callers can render a placeholder

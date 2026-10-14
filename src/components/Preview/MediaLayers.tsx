@@ -1,16 +1,11 @@
 import type { RefObject } from 'react'
-import { clipTransformAt } from '../../shared/scene'
+import { clipTransformAt, poseTransformCss } from '../../shared/scene'
 import { transitionStyles, type ActiveTransition, type TransitionStyle } from '../../shared/transitions'
 import type { Clip, MediaFile, Track } from '../../types'
 
 // The media layer stack: the background clip (or the outgoing half of a
 // transition), the incoming half during a transition, and any picture-in-picture
 // overlays above them. Text, stickers and captions live in Overlays.tsx.
-
-/** Transform string for a pose whose x/y are offsets from the canvas centre. */
-function poseTransform(x: number, y: number, scaleX: number, scaleY: number, rotation: number): string {
-  return `translate(${x * 100}%, ${y * 100}%) scale(${scaleX}, ${scaleY}) rotate(${rotation}deg)`
-}
 
 export interface BaseMediaLayerProps {
   media: MediaFile | null | undefined
@@ -41,7 +36,7 @@ export function BaseMediaLayer({
     objectFit: 'contain',
     filter,
     opacity: tf.opacity,
-    transform: poseTransform(tf.x, tf.y, tf.scaleX, tf.scaleY, tf.rotation),
+    transform: poseTransformCss(tf),
     ...transitionStyle,
   }
 
@@ -110,7 +105,7 @@ export function IncomingMediaLayer({
   const combinedStyle: React.CSSProperties = {
     objectFit: 'contain',
     opacity: tf.opacity,
-    transform: poseTransform(tf.x, tf.y, tf.scaleX, tf.scaleY, tf.rotation),
+    transform: poseTransformCss(tf),
     ...styleB,
   }
 

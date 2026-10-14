@@ -65,45 +65,6 @@ how the video graph is assembled, not a filter appended to the existing one.
 Owner: next engineering slot; **Julian** if the answer is to cut transitions from
 the UI instead.
 
-### D18 — Media layers apply scale and rotation in the opposite order to the export
-Preview and export now agree on the pose *numbers* for every media kind (that was
-D17). They still disagree on the *order* those numbers are combined in.
-
-`poseTransform` in `src/components/Preview/MediaLayers.tsx` emits
-`translate(x%, y%) scale(sx, sy) rotate(Rdeg)`. A CSS transform list composes
-left to right, so a point is rotated first and then scaled: **T·S·R**.
-`drawMediaLayer` in `compositor.ts` calls `ctx.translate`, `ctx.rotate`,
-`ctx.scale` before drawing, so a point is scaled first and then rotated:
-**T·R·S**.
-
-Rotation and non-uniform scale do not commute, so the two disagree whenever
-`scaleX !== scaleY` and `rotation !== 0`. With uniform scale they are identical,
-which is why this has stayed invisible.
-
-It is reachable. The right-hand panel gives video and image clips **separate**
-Scale X and Scale Y sliders. Text and stickers only have one combined Scale
-slider, but all four kinds expose `scaleX` and `scaleY` as independent keyframes,
-so animation alone can produce a non-uniform pose on any of them.
-
-Text and stickers are unaffected, and it is worth knowing why: the preview builds
-their transform as `translate(-50%,-50%) rotate() scale()` — already T·R·S, the
-same order `drawText` uses — and sticker scale is baked into the drawn size
-rather than expressed as a transform, so order cannot matter there. Media layers
-are the only ones out of step.
-
-Impact: user trust, same class as D15 and D17 — the preview does not predict the
-output. The export is the deliverable and is self-consistent, so the preview is
-the side that is wrong.
-Effort: one line, reordering `poseTransform` to `translate() rotate() scale()`,
-plus a test. Note that the existing parity tests **cannot** catch this:
-`clipTransformAt` returns the same six numbers either way, and the order only
-exists in the emitted CSS string and the canvas call sequence. Pinning it needs a
-test on the transform string or on the composed matrices.
-Owner: next engineering slot. Deliberately not folded into the D17 fix — D17 made
-the preview strictly more accurate with no ambiguity, whereas this changes what
-existing projects look like on screen (exports stay identical; the preview starts
-telling the truth), so it deserves its own commit and its own look at the result.
-
 ### D9 — External tooling commits and pushes without instruction
 Twice during hardening work, an unidentified tool in this environment created a commit
 and pushed it. One push raced a local history rewrite; it happened not to collide.
@@ -314,3 +275,28 @@ Kept here for traceability; each has a commit.
   though its `include` already covers `*.test.tsx`), so the image render path is
   covered by the parity tests and by both branches now consuming one
   `combinedStyle` object — not by an observed frame.
+- Media layers now apply rotation and scale in the same order as the export
+  (was D18). The preview emitted `translate() scale() rotate()` — T·S·R, because
+  a CSS list composes left to right — while `drawMediaLayer` calls
+  `ctx.translate`, `ctx.rotate`, `ctx.scale`, which is T·R·S. Rotation and
+  non-uniform scale do not commute, so the two disagreed whenever
+  `scaleX !== scaleY` and `rotation !== 0`, and agreed exactly under a uniform
+  scale, which is why it survived. The conversion moved to `scene.ts` as
+  `poseTransformCss` with the order named as `POSE_TRANSFORM_ORDER`, and
+  `drawMediaLayer` carries a comment pointing back at it.
+- Exports are unchanged by that fix; only the preview moved, and it moved toward
+  the output. Projects using a non-uniform scale with a rotation look different
+  on screen now — different meaning correct.
+- The D18 test was verified by planting the bug back and watching it fail, the
+  same method used for D3. With the old order restored, two of the five new order
+  tests failed — the composed matrix diverged by 0.5, not by float noise — while
+  all six "media layer pose parity" tests still passed. That is the point of the
+  exercise: `clipTransformAt` returns the same six numbers in either order, so no
+  test that compares poses can see this. The new tests parse the emitted CSS,
+  compose both sides into 3x3 matrices, and compare, with two further cases
+  pinning *why* it hid: uniform scale and zero rotation both make the wrong order
+  produce the right matrix.
+- Smoke-checked in a browser after moving the function into `scene.ts`, since the
+  risk there is module loading rather than rendering: 544 DOM nodes, placeholder
+  and transport controls mounted, zero page errors. The order change itself is not
+  observable without a media clip, which needs `electronAPI` to import.
