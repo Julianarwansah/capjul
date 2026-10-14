@@ -97,23 +97,6 @@ Impact: maintainability; the next feature is likely to land in an 800-line file 
 Effort: `PreviewPanel` and `Timeline` about a day each; the rest opportunistically.
 Owner: next engineering slot.
 
-### D14 — Two transport controls are not keyboard-operable
-Found while adding the `aria-label`s the icon buttons were missing:
-
-- The preview progress bar (`PreviewControls`) is a `div` with an `onClick` seek.
-  No `role="slider"`, no `tabIndex`, no arrow-key handling, no focus ring.
-  Seeking is mouse-only.
-- The playback-speed menu is a `div` of buttons with no Escape-to-close and no
-  focus management. Tab reaches the items, but the menu cannot be dismissed
-  without a mouse.
-
-The icon buttons themselves now carry `aria-label` — previously `title` only,
-which screen readers do not announce — so this is the remainder.
-Impact: accessibility. WCAG 2.1 AA 2.1.1 (Keyboard) fails on both counts.
-Effort: progress bar ~2 hours; speed menu ~1 hour, or free if it is replaced by
-the existing `ContextMenu`, which already handles Escape and outside-click.
-Owner: next engineering slot.
-
 ## Resolved during this hardening pass
 
 Kept here for traceability; each has a commit.
@@ -178,4 +161,23 @@ Kept here for traceability; each has a commit.
   the copy replayed the original's poses at the wrong moment. All three copy
   paths — toolbar/shortcut, context menu, paste — now share `copyClipAfter`.
 - Icon-only buttons in `TopBar` and `PreviewControls` carry `aria-label`. They
-  had `title` only, which screen readers do not announce (the rest of D14).
+  had `title` only, which screen readers do not announce (part of D14).
+- The preview progress bar is a real `role="slider"`: focusable, with
+  `aria-valuetext` in timecode, arrow-key seeking (shift for 5s) and Home/End.
+  The hit area grew vertically only — `handleSeek` reads `currentTarget`'s
+  bounding rect, so widening the element would have broken the click-to-time
+  mapping. Its key handler stops propagation, because `App.tsx` binds the same
+  arrows globally and both would otherwise fire per keypress (was D14).
+- The playback-speed popup now behaves like the menu its trigger already
+  advertised via `aria-haspopup`: `menuitemradio` items with `aria-checked`,
+  roving `tabIndex`, focus landing on the current speed when it opens,
+  ArrowUp/Down/Home/End to cycle, Escape and outside-click to close, and focus
+  returned to the trigger (was D14).
+- Both were verified in a real browser rather than assumed. A 13-step scenario
+  added a text clip to make `duration` non-zero, then asserted the slider's
+  `aria-valuetext` was exactly `00:00.03` after one ArrowRight at 30fps — one
+  frame, not two, which is what disproves the double-seek — and that Escape
+  detaches the menu and resets `aria-expanded`. Zero page errors. Not verified:
+  that focus actually returns to the trigger (the tooling asserts DOM state, not
+  `document.activeElement`), and screen-reader announcement, which needs a real
+  assistive-technology pass rather than an attribute check.
