@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import {
   Save, Download, Undo2, Redo2, Settings,
-  FilePlus, FolderOpen, Share2, Scissors, Copy, Trash2,
-  ZoomIn, ZoomOut, Grid3X3, Layers
+  FilePlus, FolderOpen, Scissors, Copy, Trash2,
+  ZoomIn, ZoomOut,
 } from 'lucide-react'
 import { selectHasSelection, useEditorStore } from '../store/editorStore'
 
@@ -153,10 +153,7 @@ export function TopBar() {
         className="flex items-center gap-2"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
-        <TopBtn icon={<Grid3X3 size={15} />} title="Templates" onClick={() => {}} />
-        <TopBtn icon={<Layers size={15} />} title="Layers" onClick={() => {}} />
         <TopBtn icon={<Settings size={15} />} title="Project Settings" onClick={() => setShowProjectSettings(true)} />
-        <TopBtn icon={<Share2 size={15} />} title="Share" onClick={() => {}} />
         <button
           className="btn-primary flex items-center gap-1.5 text-xs h-8 px-4"
           onClick={() => setShowExportDialog(true)}

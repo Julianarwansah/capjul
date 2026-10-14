@@ -14,11 +14,9 @@ export const SNAP_PX = 8
  * `excludeId` stops the dragged clip snapping to itself.
  *
  * Ties go to whichever target comes first, so the candidate order below is part
- * of the behaviour: playhead, zero, then video, audio and text clips.
- *
- * NOTE: sticker clips are not snap targets. The timeline this was extracted from
- * never included them and adding targets changes how dragging feels, so it is
- * filed separately rather than smuggled into a refactor (tech debt D19).
+ * of the behaviour: playhead, zero, then video, audio, text and sticker clips.
+ * Stickers were added last (tech debt D19) so that the ordering of the three
+ * kinds that already snapped could not change.
  */
 export function snapTime(
   project: Project,
@@ -29,7 +27,9 @@ export function snapTime(
 ): number {
   const threshold = SNAP_PX / pxPerSec
   const snaps: number[] = [playhead, 0]
-  for (const c of [...project.clips, ...project.audioClips, ...project.textClips]) {
+  for (const c of [
+    ...project.clips, ...project.audioClips, ...project.textClips, ...project.stickerClips,
+  ]) {
     if (c.id === excludeId) continue
     snaps.push(c.startTime, c.startTime + c.duration)
   }

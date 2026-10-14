@@ -12,25 +12,6 @@ velocity or user trust. P3 is hygiene.
 
 ## P2
 
-### D5 — Seven button sites still do nothing
-Was "15 of 53 buttons". Split, Duplicate and Delete in `TopBar` and Fullscreen in
-`PreviewControls` are now wired, so what is left is not missing handlers — it is
-placeholder UI standing in for features that do not exist:
-
-- `TopBar`: Templates, Layers, Share. Three explicit `onClick={() => {}}`.
-- `AudioPanel`: the Moods chips, the four "Recommended" tracks with their `+`
-  buttons, and the Sound Effects list. These render hardcoded mock data
-  (`Music Track 1..4`, `Upbeat · 2:30`, a fixed `SOUND_EFFECTS` array) for a
-  music and effects library the app does not have. Wiring them up means
-  inventing that library first — asset sourcing and licensing, not a handler.
-- `AIPanel`: the suggestion list items.
-
-Impact: user trust — the UI promises functions it does not have. The audio
-placeholders are the worst offenders because they look like populated content.
-Effort: Templates/Layers/Share are a keep-or-cut call. The audio library is a
-real feature, days not hours. Cutting the placeholders is ~1 hour.
-Owner: **Julian** for keep/cut on all seven; engineering for whatever is kept.
-
 ### D7 — The six grading fields are stored but rendered nowhere
 `exposure`, `highlights`, `shadows`, `temperature`, `tint` and `sharpness` are in
 `ClipSchema`, have sliders in `RightPanel`, and are read by nothing. The sliders
@@ -84,10 +65,29 @@ Owner: next engineering slot; **Julian** if the answer is to cut transitions fro
 the UI instead.
 
 ### D9 — External tooling commits and pushes without instruction
-Twice during hardening work, an unidentified tool in this environment created a commit
-and pushed it. One push raced a local history rewrite; it happened not to collide.
-Impact: process risk — unreviewed or half-finished states can become public history.
-Effort: configuration change, ~30 minutes to identify and disable/confirm.
+Four times now an unidentified tool in this environment created commits and
+pushed them, using the local git identity, without being asked. One push raced a
+local history rewrite; it happened not to collide.
+
+It has now been narrowed, which is the useful part. **The mechanism is not in
+this repository.** There are no git hooks (`.git/hooks` holds only the samples),
+`core.hooksPath` is unset, there is no `.husky`, no `lint-staged`, no git
+aliases, and `.github/workflows/ci.yml` only checks out and runs gates — it has
+no commit or push step. Whatever does this runs client-side: an editor or agent
+feature using the machine's git identity.
+
+The evidence that it is generated rather than written: commit `347159f` is
+titled "feat: add PreviewControls component for enhanced playback controls in
+the PreviewPanel" and its diff is two pure renames with 0 insertions and 0
+deletions. No one describes a file move that way; a tool that saw two unfamiliar
+paths did.
+
+Impact: process risk — unreviewed or half-finished states become public history,
+with commit messages that misdescribe the change. This is the only item in the
+register that cannot be fixed from inside the codebase.
+Effort: unknown until the tool is identified. Check editor/agent auto-commit or
+checkpoint settings; `git log --format='%h %ad %s' --date=iso` compared against
+when you were actually editing will show which ones are not yours.
 Owner: **Julian** — this is your environment, not the codebase.
 
 ### D10 — No packaging script despite electron-builder config
@@ -165,22 +165,6 @@ Effort: the comment is a one-line correction. Actually migrating the preview to
 layers, so it is a real project, not a cleanup.
 Owner: next engineering slot. Correct the comment immediately; schedule the
 migration alongside D7, since both touch the same preview render path.
-
-### D19 — Sticker clips are not snap targets when dragging
-`snapTime` (`src/shared/timeline-snap.ts`) collects candidate edges from
-`project.clips`, `project.audioClips` and `project.textClips`, but not
-`project.stickerClips`. Dragging a sticker therefore does not snap to other
-stickers, and dragging anything else does not snap to a sticker's edges, while
-video, audio and text all snap to each other.
-
-Found while extracting the function; it is an inconsistency in the original code,
-not something the extraction introduced. A test now pins the current behaviour so
-that including stickers is a deliberate change that fails a test, rather than a
-silent one.
-Impact: minor editing friction, inconsistent between clip kinds.
-Effort: one line plus updating that test. Held back only because it changes how
-dragging feels, which is a judgement call rather than a bug fix.
-Owner: **Julian** for whether stickers should snap; engineering for the line.
 
 ### D20 — The timeline ruler seeks by mouse only
 `Ruler.tsx` is a `div` with an `onClick` that seeks to the clicked time. No
@@ -431,3 +415,35 @@ Kept here for traceability; each has a commit.
   moved back out. `keyframe-easing.ts` imports nothing for that reason. If this
   is ever "tidied" by moving the list next to the schema, check the bundle size
   afterwards.
+- Every dead button is gone (was D5). The decision on all seven was **cut**, not
+  keep, on one principle: a control that does nothing is a promise the app
+  cannot keep, and the honest cheap fix is to stop making it. Recoverable from
+  git if any turns out to have been wanted.
+  - `TopBar` **Templates** — cut. The left rail already has a working Templates
+    tab with real `applyTemplate` handlers, so this was a second, dead way to
+    reach the same thing.
+  - `TopBar` **Layers** — cut. No layers panel exists, and the track stack is
+    already visible in the timeline. Building one is a feature, not a wiring job.
+  - `TopBar` **Share** — cut. There is no sharing infrastructure; Export is the
+    delivery path and sits right next to it.
+  - `AudioPanel` **Moods**, **Recommended** and **Sound Effects** — all cut, and
+    the now-empty `effects` sub-tab with them. These were the worst offenders:
+    hardcoded `Music Track 1..4` at `Upbeat · 2:30` and a fixed `SOUND_EFFECTS`
+    array that rendered like a populated library rather than like a placeholder.
+    What is left in the panel is Import Audio and voiceover recording, both of
+    which work. A real music/SFX library is a feature that needs asset sourcing
+    and licensing first.
+  - **AI Tools** tab and `AIPanel.tsx` — cut entirely, including the `'ai'`
+    member of `LeftPanelTab`. Every item in it was inert. A "Beta" badge does not
+    make zero functionality honest, and it was the largest single promise in the
+    UI. If AI features are wanted, they should arrive as a feature, not as a
+    menu that was already there.
+  Verified in a browser afterwards: the top bar has eleven buttons and all of
+  them do something, the left rail has eight tabs, the Audio panel has two
+  sub-tabs and no mock content, the Templates panel still renders and still
+  works, and zero page errors. A scan for `<button>` elements with no handler
+  now returns none anywhere in `src/`. Bundle fell to 125 KB gzipped.
+- Sticker clips are snap targets when dragging (was D19). They were the one kind
+  left out, so stickers neither snapped to each other nor offered their edges to
+  anything else. The test that pinned the omission was inverted rather than
+  deleted, so it now pins the fix.

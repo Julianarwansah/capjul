@@ -7,11 +7,10 @@ import { StickerPanel } from './StickerPanel'
 import { EffectsPanel } from './EffectsPanel'
 import { FiltersPanel } from './FiltersPanel'
 import { TransitionsPanel } from './TransitionsPanel'
-import { AIPanel } from './AIPanel'
 import { TemplatesPanel } from './TemplatesPanel'
 import {
   Film, Music, Type, Smile, Sparkles, Palette,
-  GitMerge, Brain, LayoutTemplate
+  GitMerge, LayoutTemplate
 } from 'lucide-react'
 
 const TABS: { id: LeftPanelTab; label: string; icon: React.ReactNode }[] = [
@@ -22,7 +21,6 @@ const TABS: { id: LeftPanelTab; label: string; icon: React.ReactNode }[] = [
   { id: 'effects', label: 'Effects', icon: <Sparkles size={18} /> },
   { id: 'filters', label: 'Filters', icon: <Palette size={18} /> },
   { id: 'transitions', label: 'Trans.', icon: <GitMerge size={18} /> },
-  { id: 'ai', label: 'AI Tools', icon: <Brain size={18} /> },
   { id: 'templates', label: 'Templates', icon: <LayoutTemplate size={18} /> },
 ]
 
@@ -34,7 +32,6 @@ const PANEL_MAP: Record<LeftPanelTab, React.ReactNode> = {
   effects: <EffectsPanel />,
   filters: <FiltersPanel />,
   transitions: <TransitionsPanel />,
-  ai: <AIPanel />,
   templates: <TemplatesPanel />,
 }
 

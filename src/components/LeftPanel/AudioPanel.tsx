@@ -1,24 +1,11 @@
 import { useRef, useState } from 'react'
-import { Music2, Mic, Volume2, Upload, Plus, Square } from 'lucide-react'
+import { Mic, Upload, Square } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import type { AudioClip, MediaFile } from '../../types'
 
-const SOUND_EFFECTS = [
-  { name: 'Whoosh', duration: 0.8, icon: '💨' },
-  { name: 'Pop', duration: 0.3, icon: '💥' },
-  { name: 'Click', duration: 0.1, icon: '👆' },
-  { name: 'Ding', duration: 0.5, icon: '🔔' },
-  { name: 'Swoosh', duration: 0.6, icon: '🌬️' },
-  { name: 'Transition', duration: 1.2, icon: '🎵' },
-  { name: 'Applause', duration: 3.0, icon: '👏' },
-  { name: 'Laughing', duration: 2.5, icon: '😄' },
-]
-
-const MUSIC_MOODS = ['Upbeat', 'Calm', 'Dramatic', 'Happy', 'Sad', 'Energetic', 'Romantic', 'Epic']
-
 export function AudioPanel() {
   const { addMedia, addAudioClip, currentTime, project, addTrack } = useEditorStore()
-  const [activeTab, setActiveTab] = useState<'music' | 'effects' | 'voiceover'>('music')
+  const [activeTab, setActiveTab] = useState<'music' | 'voiceover'>('music')
   const [recording, setRecording] = useState(false)
   const [recordingTime, setRecordingTime] = useState(0)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -90,7 +77,7 @@ export function AudioPanel() {
     <div className="flex flex-col h-full">
       {/* Tabs */}
       <div className="flex shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
-        {(['music', 'effects', 'voiceover'] as const).map(t => (
+        {(['music', 'voiceover'] as const).map(t => (
           <button
             key={t}
             onClick={() => setActiveTab(t)}
@@ -117,56 +104,6 @@ export function AudioPanel() {
             >
               <Upload size={14} /> Import Audio
             </button>
-
-            <p className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>Moods</p>
-            <div className="flex flex-wrap gap-1.5">
-              {MUSIC_MOODS.map(m => (
-                <button key={m} className="text-xs px-2.5 py-1 rounded"
-                  style={{ background: 'var(--color-bg-surface)', color: 'var(--color-text-secondary)', border: 'none', cursor: 'pointer' }}>
-                  {m}
-                </button>
-              ))}
-            </div>
-
-            <p className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>Recommended</p>
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} className="flex items-center gap-2 p-2 rounded" style={{ background: 'var(--color-bg-surface)' }}>
-                <div className="w-10 h-10 rounded flex items-center justify-center shrink-0"
-                  style={{ background: `hsl(${i * 60},60%,30%)` }}>
-                  <Music2 size={16} style={{ color: 'white' }} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium truncate" style={{ color: 'var(--color-text-primary)' }}>Music Track {i}</p>
-                  <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Upbeat · 2:30</p>
-                </div>
-                <button className="w-7 h-7 rounded flex items-center justify-center"
-                  style={{ background: 'var(--color-primary)', border: 'none', cursor: 'pointer' }}>
-                  <Plus size={12} style={{ color: 'white' }} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {activeTab === 'effects' && (
-          <div className="p-3 flex flex-col gap-2">
-            <p className="text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Sound Effects</p>
-            {SOUND_EFFECTS.map(fx => (
-              <button
-                key={fx.name}
-                className="flex items-center gap-3 p-2 rounded w-full text-left"
-                style={{ background: 'var(--color-bg-surface)', border: 'none', cursor: 'pointer' }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--color-bg-hover)'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'var(--color-bg-surface)'}
-              >
-                <span className="text-xl">{fx.icon}</span>
-                <div className="flex-1">
-                  <p className="text-xs font-medium" style={{ color: 'var(--color-text-primary)' }}>{fx.name}</p>
-                  <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{fx.duration}s</p>
-                </div>
-                <Volume2 size={13} style={{ color: 'var(--color-text-muted)' }} />
-              </button>
-            ))}
           </div>
         )}
 

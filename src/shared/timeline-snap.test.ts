@@ -119,9 +119,10 @@ describe('snapTime', () => {
     expect(snapTime(project({ textClips: [textClip('t', 10, 2)] }), 10.05, 20, PX_PER_SEC)).toBe(10)
   })
 
-  it('does not treat sticker clips as snap targets', () => {
-    // Pins the documented omission (D19) so that adding stickers is a deliberate
-    // change that fails this test, not a silent one.
-    expect(snapTime(project({ stickerClips: [stickerClip('s', 10, 2)] }), 10.05, 20, PX_PER_SEC)).toBe(10.05)
+  it('treats sticker clips as snap targets too', () => {
+    // Stickers were the one kind left out (D19). The test that pinned the
+    // omission is now the test that pins the fix.
+    expect(snapTime(project({ stickerClips: [stickerClip('s', 10, 2)] }), 10.05, 20, PX_PER_SEC)).toBe(10)
+    expect(snapTime(project({ stickerClips: [stickerClip('s', 10, 2)] }), 11.95, 20, PX_PER_SEC)).toBe(12)
   })
 })

@@ -28,7 +28,7 @@ export interface ExportSettings {
   audioBitrate: string
 }
 
-export type LeftPanelTab = 'media' | 'audio' | 'text' | 'stickers' | 'effects' | 'filters' | 'transitions' | 'ai' | 'templates'
+export type LeftPanelTab = 'media' | 'audio' | 'text' | 'stickers' | 'effects' | 'filters' | 'transitions' | 'templates'
 
 // Superseded by ExportRequest in src/shared/ipc-contract.ts; removed when the
 // export channel moves onto the typed contract.
