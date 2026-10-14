@@ -144,37 +144,43 @@ Owner: unowned until it measures slow.
 
 ### D13 — The 300-line threshold has been crossed again (was D6)
 D6 was marked resolved in `12f1f1a` and that was accurate at the time. It is not
-now. Seven files remain over the threshold:
+now. Five files remain over the threshold:
 
 | File | Lines |
 |---|---|
-| `src/components/RightPanel.tsx` | 571 |
 | `src/store/editorStore.ts` | 470 |
 | `src/components/ExportDialog.tsx` | 438 |
-| `src/shared/render-plan.ts` | 417 |
+| `src/shared/render-plan.ts` | 429 |
 | `src/components/Preview/index.tsx` | 371 |
 | `electron/main.ts` | 354 |
-| `src/components/Timeline/ClipItems.tsx` | 325 |
 
-The two worst offenders are done, and both are recorded under "Resolved" with
-what they were split into. `PreviewPanel.tsx` went 770 → 371 and
-`Timeline/index.tsx` went 728 → 197.
+The four worst offenders are done, and all four are recorded under "Resolved"
+with what they were split into. `PreviewPanel.tsx` went 770 → 371,
+`Timeline/index.tsx` went 728 → 197, `RightPanel.tsx` went 657 → 82 and
+`ClipItems.tsx` went 325 → 271.
+
+`render-plan.ts` grew from 417 to 429 as part of the easing work and is not new
+debt; it is one coherent job — turning a project into an ffmpeg filtergraph.
 
 `Preview/index.tsx` stopped short of 300 deliberately: what remains is store
 wiring, refs, the video sync effects, the playback loop and the drag handler, and
 splitting those further would scatter playback logic rather than clarify it.
 
-What is left is mostly different in kind. `RightPanel` is four inspector panels
-in one file and splits cleanly by clip kind. `editorStore` is long because it is
-the single choke point for every mutation — length there is concentration, not
-tangle, and splitting it would work against the property that makes `mutate()`
-safe. `render-plan.ts` and `electron/main.ts` are one coherent job each.
-`ClipItems.tsx` is four sibling components that could each be their own file.
-Impact: maintainability. The remaining files are less urgent than the two that
-were fixed, and none is broken.
-Effort: `RightPanel` and `ClipItems` about half a day each; `editorStore` is
-arguably not worth splitting at all.
-Owner: next engineering slot.
+What is left is different in kind from what was fixed. `editorStore` is long
+because it is the single choke point for every mutation — length there is
+concentration, not tangle, and splitting it would work against the property that
+makes `mutate()` safe. `ExportDialog` is one dialog with two engine paths and a
+progress state machine; its size is the state machine, and the honest split would
+have to come from the export pipeline growing a third engine rather than from
+moving JSX around. `electron/main.ts` is IPC registration, which is flat by
+nature.
+Impact: maintainability. None of the five is broken, and none has the property
+that made `RightPanel` worth splitting — four near-duplicate blocks edited in
+lockstep, where a change applied to three of four is invisible.
+Effort: `editorStore` is arguably not worth splitting at all. The other four
+would each be about half a day and would mostly move lines rather than reduce
+coupling.
+Owner: next engineering slot, and only when one of them needs changing anyway.
 
 ### D16 — The preview does not consume compileScene, contrary to its own comment
 `src/shared/scene.ts` opens with: "The renderer compositor and (later) the
@@ -514,3 +520,43 @@ Kept here for traceability; each has a commit.
   One deliberate behaviour change: stepping from a time that came from a
   click-seek now snaps to the nearest frame first. For a frame-based editor that
   is the correct behaviour, but it is a change.
+- `RightPanel.tsx` went 657 → 82 lines (part of D13). The register recorded it as
+  571; it had grown to 657 with the easing UI, which is itself the argument for
+  splitting it — the file was four inspector panels in one, and every new
+  keyframed property had to be added to all four blocks in lockstep. Out came
+  `controls.tsx` (`Section`, `Toggle`, `KfBtn`, `KfControl`, `Slider`,
+  `EASING_LABELS`), one file per clip kind (`ClipInspector`, `TextInspector`,
+  `AudioInspector`, `StickerInspector`) and `constants.ts`. Each inspector reads
+  the store itself, so callers pass only the clip; what is left in `index.tsx` is
+  selection resolution, the header, the empty state and four independent
+  conditionals.
+  Two Fast Refresh warnings appeared from the split, because Vite requires a file
+  to export only components. `controls.tsx` exporting `SPEED_PRESETS` beside
+  `Slider` was one; `constants.ts` exists purely to hold it. The other was
+  `NOT_RENDERED_HINT`, which moved into `ClipInspector.tsx` as its only consumer
+  rather than into `constants.ts` — a constant used in exactly one place belongs
+  there.
+- `ClipItems.tsx` went 325 → 271 (part of D13), and deliberately stopped there.
+  The four clip renderers were *not* split into 30-line files: they are cohesive
+  siblings over one shared visual language, and separating them would scatter
+  that language across four files for no reduction in coupling. The real seam was
+  the media-loading layer, which had nothing to do with rendering clips at all —
+  `useThumbnail` and `useWaveform` moved to `useClipPreviews.ts` and
+  `WaveformCanvas` to its own file, both because they are separately testable and
+  because their presence in a component file was the second Fast Refresh
+  violation of the same kind.
+- The `RightPanel` move is not a pure refactor and is recorded as such. While
+  relocating the controls I added `aria-expanded` to `Section`, `aria-label` to
+  `Toggle`, `Slider`, the speed presets and the colour inputs, `<label htmlFor>`
+  to the text fields, and `aria-pressed` to bold/italic/underline and the
+  animation buttons. None of it changes what a mouse user sees. It is listed here
+  rather than buried in the diff because "refactor" commits are read as
+  no-behaviour-change commits, and this one adds accessible state that was not
+  exposed before.
+- Verified after the `RightPanel` split with a 12-check browser run rather than by
+  reading: empty state and header on no selection, header switching to "Teks",
+  all four text sections rendering, the content textarea holding the clip's text,
+  eight font families in the select, a collapsed section reporting
+  `aria-expanded="false"`, bold reaching the overlay and reporting pressed, the
+  easing selector appearing at the playhead with all four curves offered, and
+  zero page errors throughout.

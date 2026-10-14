@@ -1,65 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo } from 'react'
 import { Lock, Unlock, Volume2, VolumeX } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { TRACK_COLORS } from './track-colors'
 import { stickerLabel } from '../../shared/sticker-assets'
-import { loadWaveform } from '../../shared/waveform-cache'
-import { loadThumbnail, getThumbnail } from '../../shared/thumbnail-cache'
+import { useThumbnail, useWaveform } from './useClipPreviews'
+import { WaveformCanvas } from './WaveformCanvas'
 import type { Clip, TextClip, AudioClip, StickerClip, Track, MediaFile } from '../../types'
-
-function useThumbnail(filePath: string | undefined, seekTime = 0.5): string | null {
-  const [url, setUrl] = useState<string | null>(() => filePath ? getThumbnail(filePath) : null)
-  useEffect(() => {
-    if (!filePath) return
-    let cancelled = false
-    loadThumbnail(filePath, seekTime).then(u => { if (!cancelled) setUrl(u) }).catch(() => {})
-    return () => { cancelled = true }
-  }, [filePath, seekTime])
-  return url
-}
-
-function useWaveform(filePath: string | undefined): Float32Array | null {
-  const [data, setData] = useState<Float32Array | null>(null)
-  useEffect(() => {
-    if (!filePath) return
-    let cancelled = false
-    loadWaveform(filePath).then(w => { if (!cancelled) setData(w) }).catch(() => {})
-    return () => { cancelled = true }
-  }, [filePath])
-  return data
-}
-
-function WaveformCanvas({ waveform, width, height }: { waveform: Float32Array; width: number; height: number }) {
-  const ref = useRef<HTMLCanvasElement>(null)
-
-  useEffect(() => {
-    const canvas = ref.current
-    if (!canvas || width <= 0 || height <= 0) return
-    const dpr = window.devicePixelRatio || 1
-    canvas.width = width * dpr
-    canvas.height = height * dpr
-    canvas.style.width = `${width}px`
-    canvas.style.height = `${height}px`
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.scale(dpr, dpr)
-    ctx.clearRect(0, 0, width, height)
-
-    const barW = width / waveform.length
-    ctx.fillStyle = 'rgba(74,222,128,0.7)'
-    for (let i = 0; i < waveform.length; i++) {
-      const barH = Math.max(1, waveform[i] * height * 0.9)
-      ctx.fillRect(i * barW, (height - barH) / 2, Math.max(1, barW - 0.5), barH)
-    }
-  }, [waveform, width, height])
-
-  return (
-    <canvas
-      ref={ref}
-      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }}
-    />
-  )
-}
 
 export function TrackLabel({ track }: { track: Track }) {
   const { updateTrack } = useEditorStore()
