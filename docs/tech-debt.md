@@ -45,6 +45,61 @@ Impact: parity confidence is now structural; two feature areas stay preview-only
 Effort: preset filters ~0.5 day to map or drop; grading 2-3 days inside Phase 2.
 Owner: next engineering slot.
 
+### D15 — Transitions are preview-only and vanish on export
+`TransitionsPanel` creates real `project.transitions` entries, including
+"apply to all" across a track. `PreviewPanel` renders them through
+`transitionStyles()` — 11 types: fade, dissolve, four wipes, two slides, two
+zooms, blur, flash. Nothing on the export side ever reads them: `transitions`
+appears nowhere in `render-plan.ts` or `compositor.ts`, only in
+`project-schema.ts` and test fixtures.
+
+So a crossfade the user picked, saw working in the preview, and then exported is
+silently dropped. Unlike D7's disabled sliders there is no hint that the feature
+does not reach the output — the preview actively demonstrates it working, which
+makes this a worse promise to break.
+Impact: user trust and output correctness. This is a whole feature, not a field.
+Effort: ~1-2 days. `xfade` in the filtergraph for video-to-video on one track,
+but the current `RenderPlan` compiles each clip to its own trimmed stream, so
+transitions need adjacent streams paired with an offset — a structural change to
+how the video graph is assembled, not a filter appended to the existing one.
+Owner: next engineering slot; **Julian** if the answer is to cut transitions from
+the UI instead.
+
+### D17 — Image clips ignore position, scale, rotation and keyframes in the preview
+`BaseMediaLayer` (`src/components/Preview/MediaLayers.tsx`) resolves a full pose
+through `clipTransformAt` for video, but the image branch still renders with
+`objectFit: contain` filling the canvas and only a static `clip.opacity`. No
+`translate`, no `scale`, no `rotate`, no keyframed opacity.
+
+The export side does apply all of it: `compileScene` emits image layers with the
+same `transform` and `keyframes` as video, and `compositor.ts` runs both through
+`transformAt`. So an image clip the user drags, resizes, rotates or animates in
+the right-hand panel exports correctly while the preview keeps showing it
+centred and still.
+
+This is the inverse of D15 and in some ways worse. There the preview showed a
+feature the export dropped; here the preview hides a change the export keeps.
+Either way the preview — the surface the user actually edits on — does not
+predict the output.
+
+`IncomingMediaLayer` has the smaller version of the same defect: the clip
+arriving during a transition reads `clipB`'s static pose instead of resolving its
+keyframes. It is only visible for the length of a transition, and transitions do
+not export at all yet (D15), so it is not separately urgent.
+
+Both were found while extracting the media layers out of `PreviewPanel` and are
+marked `D17` in the code at the exact branches. They were deliberately left
+unfixed there: mixing a visible rendering change into a structural refactor is
+how regressions hide.
+Impact: preview does not match export for every image clip with a non-default
+transform. Images are common — photos, logos, PNG overlays — so this is
+frequently hit, not theoretical.
+Effort: ~2 hours. Apply the resolved pose in the image branch as the video
+branch already does, then extend `parity.test.ts` to pin that image and video
+layers resolve their pose identically. The transition-incoming case is a few
+minutes more.
+Owner: next engineering slot.
+
 ### D9 — External tooling commits and pushes without instruction
 Twice during hardening work, an unidentified tool in this environment created a commit
 and pushed it. One push raced a local history rewrite; it happened not to collide.
@@ -75,27 +130,60 @@ Owner: unowned until it measures slow.
 
 ### D13 — The 300-line threshold has been crossed again (was D6)
 D6 was marked resolved in `12f1f1a` and that was accurate at the time. It is not
-now. Eight files are over the threshold:
+now. Eight files remain over the threshold:
 
 | File | Lines |
 |---|---|
-| `src/components/PreviewPanel.tsx` | 770 |
-| `src/components/Timeline/index.tsx` | 725 |
+| `src/components/Timeline/index.tsx` | 728 |
 | `src/components/RightPanel.tsx` | 571 |
-| `src/store/editorStore.ts` | 476 |
+| `src/store/editorStore.ts` | 470 |
 | `src/components/ExportDialog.tsx` | 438 |
 | `src/shared/render-plan.ts` | 417 |
+| `src/components/Preview/index.tsx` | 370 |
 | `electron/main.ts` | 354 |
 | `src/components/Timeline/ClipItems.tsx` | 325 |
 
-This is feature work landing in the same few files — keyframes, the Phase 2
+The worst offender is done. `PreviewPanel.tsx` (770) became `Preview/` with the
+transition style table and the active-transition query moved to
+`shared/transitions.ts`, the media layer stack to `MediaLayers.tsx`, text and
+sticker and caption and effect overlays to `Overlays.tsx`, the floating button
+clusters to `Toolbar.tsx`, and audio element management and chroma key to two
+hooks. The orchestrator is 370 lines and the six files it delegates to are all
+under 270. It stopped short of 300 on purpose: what is left is store wiring,
+refs, the video sync effects, the playback loop and the drag handler, and
+splitting those further would scatter playback logic rather than clarify it.
+
+The rest is feature work landing in the same few files — keyframes, the Phase 2
 compositor, the selection-wide store actions — not neglect, and nothing here is
 broken. The real cost is that the register's "every file is under 300 lines"
 claim went stale and nobody noticed, which matters more than the line counts:
 the register is supposed to record measurement, not aspiration.
-Impact: maintainability; the next feature is likely to land in an 800-line file too.
-Effort: `PreviewPanel` and `Timeline` about a day each; the rest opportunistically.
+Impact: maintainability; the next feature is likely to land in a 700-line file too.
+Effort: `Timeline` about a day — the clip item rendering, marquee selection,
+drag/resize and context menu are four separable concerns still in one file. The
+rest opportunistically.
 Owner: next engineering slot.
+
+### D16 — The preview does not consume compileScene, contrary to its own comment
+`src/shared/scene.ts` opens with: "The renderer compositor and (later) the
+preview both consume this, which is what makes parity structural rather than
+hoped for." The compositor does. The preview does not — `PreviewPanel` derives
+its own active layers, track order and paint stacking independently
+(`videoTracks` / `allActiveClips` / `activeTextClips` / `activeStickerClips`),
+and has its own `clipTransform` wrapper around the shared `transformAt`.
+
+What is genuinely shared today is narrower than the comment claims: the
+transform and pose math (`transformAt`, `textTransformAt`, `stickerTransformAt`)
+and the colour-adjust factors, which `parity.test.ts` pins. Layer *selection*
+and *ordering* are not shared, so the two can disagree about which clips are
+visible at time t, or in what order, without any test failing.
+Impact: latent parity risk, and a comment that overstates the guarantee. No
+observed drift bug yet.
+Effort: the comment is a one-line correction. Actually migrating the preview to
+`compileScene` is 2-3 days and needs DOM-layer video elements mapped onto scene
+layers, so it is a real project, not a cleanup.
+Owner: next engineering slot. Correct the comment immediately; schedule the
+migration alongside D7, since both touch the same preview render path.
 
 ## Resolved during this hardening pass
 
@@ -181,3 +269,22 @@ Kept here for traceability; each has a commit.
   that focus actually returns to the trigger (the tooling asserts DOM state, not
   `document.activeElement`), and screen-reader announcement, which needs a real
   assistive-technology pass rather than an attribute check.
+- `PreviewPanel.tsx` (770 lines) split into `Preview/`: `MediaLayers.tsx`,
+  `Overlays.tsx`, `Toolbar.tsx`, `useAudioClips.ts`, `useChromaKey.ts`, with the
+  transition style table and active-transition query moved to
+  `shared/transitions.ts` and the media-clip pose resolver added to `scene.ts` as
+  `clipTransformAt`, completing the trio with `textTransformAt` and
+  `stickerTransformAt`. The orchestrator is now 370 lines. Purely structural —
+  no rendering changed, which is why the two pose defects found on the way were
+  filed as D17 instead of fixed inline (part of D13).
+- `transitionStyles` and `findActiveTransition` were untested pure functions
+  buried in the component. Both now live in `shared/transitions.ts` with 20 tests
+  covering the 12 transition types, the window a transition occupies, next-clip
+  resolution across tracks, and the missing-clip and missing-media cases.
+- A zero-duration transition produced `progress: NaN`, which would have flowed
+  into CSS as `opacity: NaN`. Unreachable from the panel's slider (min 0.1) but
+  reachable from a hand-edited project file; now pinned to 1 with a test.
+- The last `exhaustive-deps` warning in the codebase is gone. `overlayVideoRefs`
+  was an array literal rebuilt every render, so it could not be listed as a
+  dependency; the three refs are now individually stable and collected with
+  `useMemo`. `npm run lint` reports zero warnings for the first time.

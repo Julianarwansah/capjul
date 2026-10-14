@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compileScene, isActiveAt, mediaTimeAt, stickerTransformAt, textTransformAt, transformAt } from './scene'
+import { clipTransformAt, compileScene, isActiveAt, mediaTimeAt, stickerTransformAt, textTransformAt, transformAt } from './scene'
 import type { Clip, Project, StickerClip, TextClip } from './project-schema'
 
 function clip(over: Partial<Clip> = {}): Clip {
@@ -176,5 +176,40 @@ describe('stickerTransformAt', () => {
       { id: 'b', time: 4, property: 'x', value: 1 },
     ]
     expect(stickerTransformAt(sticker({ keyframes: kfs }), 3).x).toBeCloseTo(0.5)
+  })
+})
+
+describe('clipTransformAt', () => {
+  it('resolves a null clip to the identity pose', () => {
+    // Callers render a placeholder when nothing is active, and must not have to
+    // special-case the pose lookup.
+    expect(clipTransformAt(null, 0)).toEqual({
+      x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, opacity: 1,
+    })
+  })
+
+  it('returns the static clip pose when there are no keyframes', () => {
+    const c = clip({ x: 0.1, y: -0.2, scaleX: 1.5, scaleY: 0.5, rotation: 30, opacity: 0.8 })
+    expect(clipTransformAt(c, 99)).toEqual({
+      x: 0.1, y: -0.2, scaleX: 1.5, scaleY: 0.5, rotation: 30, opacity: 0.8,
+    })
+  })
+
+  it('reads opacity from the clip, which text does not carry but media does', () => {
+    expect(clipTransformAt(clip({ opacity: 0.25 }), 0).opacity).toBe(0.25)
+    expect(textTransformAt(text({}), 0).opacity).toBe(1)
+  })
+
+  it('interpolates a keyframed property and leaves the others static', () => {
+    const c = clip({
+      x: 0, y: 0.4, scaleX: 1, scaleY: 1, rotation: 0, opacity: 1,
+      keyframes: [
+        { id: 'a', property: 'x', time: 0, value: 0 },
+        { id: 'b', property: 'x', time: 2, value: 1 },
+      ],
+    })
+    expect(clipTransformAt(c, 1)).toEqual({
+      x: 0.5, y: 0.4, scaleX: 1, scaleY: 1, rotation: 0, opacity: 1,
+    })
   })
 })

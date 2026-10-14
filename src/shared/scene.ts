@@ -1,6 +1,6 @@
 import { buildCssFilter, colorAdjustFactors } from './color-adjust'
 import { interpolate } from './keyframe-interpolate'
-import type { Keyframe, Project, TextClip, StickerClip } from './project-schema'
+import type { Clip, Keyframe, Project, StickerClip, TextClip } from './project-schema'
 
 // The Phase 2 scene model: a DOM-independent description of what the compositor
 // must draw, in paint order. The renderer compositor and (later) the preview
@@ -139,6 +139,21 @@ export function transformAt(keyframes: Keyframe[], base: SceneTransform, t: numb
     rotation: interpolate(keyframes, 'rotation', t, base.rotation),
     opacity:  interpolate(keyframes, 'opacity',  t, base.opacity),
   }
+}
+
+/**
+ * Pose of a media clip at timeline time t. A media layer's x/y are offsets from
+ * the canvas centre, unlike text and stickers whose x/y are absolute fractions.
+ * A null clip resolves to the identity pose so callers can render a placeholder
+ * without a special case.
+ */
+export function clipTransformAt(clip: Clip | null, t: number): SceneTransform {
+  if (!clip) return { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, opacity: 1 }
+  return transformAt(clip.keyframes ?? [], {
+    x: clip.x, y: clip.y,
+    scaleX: clip.scaleX, scaleY: clip.scaleY,
+    rotation: clip.rotation, opacity: clip.opacity,
+  }, t)
 }
 
 /**

@@ -1,7 +1,7 @@
 import { useEffect, useCallback, useRef, useState } from 'react'
 import { TopBar } from './components/TopBar'
 import { LeftPanel } from './components/LeftPanel'
-import { PreviewPanel } from './components/PreviewPanel'
+import { PreviewPanel } from './components/Preview'
 import { RightPanel } from './components/RightPanel'
 import { Timeline } from './components/Timeline'
 import { ExportDialog } from './components/ExportDialog'
