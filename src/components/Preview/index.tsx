@@ -267,6 +267,7 @@ export function PreviewPanel() {
           {activeTransition && (
             <IncomingMediaLayer
               activeTransition={activeTransition}
+              currentTime={currentTime}
               muted={muted}
               videoRef={videoRefB}
             />

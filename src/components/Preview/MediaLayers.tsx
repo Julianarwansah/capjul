@@ -32,15 +32,20 @@ export function BaseMediaLayer({
 }: BaseMediaLayerProps) {
   if (!media) return null
 
+  // One resolved pose for every media kind. The export compositor draws image
+  // and video layers through the same transformAt call, so the preview has to
+  // resolve them the same way or an image the user moves, scales, rotates or
+  // keyframes exports differently from what they see (tech debt D17).
+  const tf = clipTransformAt(clip, currentTime)
+  const combinedStyle: React.CSSProperties = {
+    objectFit: 'contain',
+    filter,
+    opacity: tf.opacity,
+    transform: poseTransform(tf.x, tf.y, tf.scaleX, tf.scaleY, tf.rotation),
+    ...transitionStyle,
+  }
+
   if (media.type === 'video') {
-    const tf = clipTransformAt(clip, currentTime)
-    const combinedStyle: React.CSSProperties = {
-      objectFit: 'contain',
-      filter,
-      opacity: tf.opacity,
-      transform: poseTransform(tf.x, tf.y, tf.scaleX, tf.scaleY, tf.rotation),
-      ...transitionStyle,
-    }
     // With chroma key on, the video element is drawn fully transparent and the
     // keyed canvas is what the user actually sees; useChromaKey paints it.
     const chromaOn = clip?.chromaEnabled ?? false
@@ -71,16 +76,11 @@ export function BaseMediaLayer({
   }
 
   if (media.type === 'image') {
-    // D17: this branch predates media-clip transforms and still ignores the
-    // resolved pose - no x/y, no scale, no rotation, no keyframed opacity - while
-    // the video branch above and the export compositor both apply them. Left
-    // exactly as it was so that extracting it changes no rendering; the fix
-    // belongs in its own commit. See docs/tech-debt.md.
     return (
       <img
         src={`media://${media.path}`}
         className="absolute inset-0 w-full h-full"
-        style={{ objectFit: 'contain', filter, opacity: clip?.opacity ?? 1, ...transitionStyle }}
+        style={combinedStyle}
         alt=""
       />
     )
@@ -91,31 +91,37 @@ export function BaseMediaLayer({
 
 export interface IncomingMediaLayerProps {
   activeTransition: ActiveTransition
+  currentTime: number
   muted: boolean
   videoRef: RefObject<HTMLVideoElement | null>
 }
 
-/** The clip arriving during a transition, painted above the outgoing one. */
-export function IncomingMediaLayer({ activeTransition, muted, videoRef }: IncomingMediaLayerProps) {
+/** The clip arriving during a transition, painted above the outgoing one.
+ *  Carries no filter: `clipFilter` belongs to the clip at the playhead, and
+ *  applying it here would grade the incoming clip with the outgoing one's settings. */
+export function IncomingMediaLayer({
+  activeTransition, currentTime, muted, videoRef,
+}: IncomingMediaLayerProps) {
   const { transition, clipB, mediaB, progress } = activeTransition
   const [, styleB] = transitionStyles(transition.type, progress)
   if (!mediaB) return null
 
+  const tf = clipTransformAt(clipB, currentTime)
+  const combinedStyle: React.CSSProperties = {
+    objectFit: 'contain',
+    opacity: tf.opacity,
+    transform: poseTransform(tf.x, tf.y, tf.scaleX, tf.scaleY, tf.rotation),
+    ...styleB,
+  }
+
   if (mediaB.type === 'video') {
-    // D17: like the image branch above, this reads clipB's static pose rather
-    // than resolving its keyframes.
     return (
       <video
         ref={videoRef}
         key={mediaB.id}
         src={`media://${mediaB.path}`}
         className="absolute inset-0 w-full h-full"
-        style={{
-          objectFit: 'contain',
-          opacity: clipB.opacity,
-          transform: poseTransform(clipB.x, clipB.y, clipB.scaleX, clipB.scaleY, clipB.rotation),
-          ...styleB,
-        }}
+        style={combinedStyle}
         muted={muted}
         playsInline
       />
@@ -127,7 +133,7 @@ export function IncomingMediaLayer({ activeTransition, muted, videoRef }: Incomi
       <img
         src={`media://${mediaB.path}`}
         className="absolute inset-0 w-full h-full"
-        style={{ objectFit: 'contain', ...styleB }}
+        style={combinedStyle}
         alt=""
       />
     )

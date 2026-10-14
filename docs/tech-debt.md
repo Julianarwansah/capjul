@@ -65,40 +65,44 @@ how the video graph is assembled, not a filter appended to the existing one.
 Owner: next engineering slot; **Julian** if the answer is to cut transitions from
 the UI instead.
 
-### D17 — Image clips ignore position, scale, rotation and keyframes in the preview
-`BaseMediaLayer` (`src/components/Preview/MediaLayers.tsx`) resolves a full pose
-through `clipTransformAt` for video, but the image branch still renders with
-`objectFit: contain` filling the canvas and only a static `clip.opacity`. No
-`translate`, no `scale`, no `rotate`, no keyframed opacity.
+### D18 — Media layers apply scale and rotation in the opposite order to the export
+Preview and export now agree on the pose *numbers* for every media kind (that was
+D17). They still disagree on the *order* those numbers are combined in.
 
-The export side does apply all of it: `compileScene` emits image layers with the
-same `transform` and `keyframes` as video, and `compositor.ts` runs both through
-`transformAt`. So an image clip the user drags, resizes, rotates or animates in
-the right-hand panel exports correctly while the preview keeps showing it
-centred and still.
+`poseTransform` in `src/components/Preview/MediaLayers.tsx` emits
+`translate(x%, y%) scale(sx, sy) rotate(Rdeg)`. A CSS transform list composes
+left to right, so a point is rotated first and then scaled: **T·S·R**.
+`drawMediaLayer` in `compositor.ts` calls `ctx.translate`, `ctx.rotate`,
+`ctx.scale` before drawing, so a point is scaled first and then rotated:
+**T·R·S**.
 
-This is the inverse of D15 and in some ways worse. There the preview showed a
-feature the export dropped; here the preview hides a change the export keeps.
-Either way the preview — the surface the user actually edits on — does not
-predict the output.
+Rotation and non-uniform scale do not commute, so the two disagree whenever
+`scaleX !== scaleY` and `rotation !== 0`. With uniform scale they are identical,
+which is why this has stayed invisible.
 
-`IncomingMediaLayer` has the smaller version of the same defect: the clip
-arriving during a transition reads `clipB`'s static pose instead of resolving its
-keyframes. It is only visible for the length of a transition, and transitions do
-not export at all yet (D15), so it is not separately urgent.
+It is reachable. The right-hand panel gives video and image clips **separate**
+Scale X and Scale Y sliders. Text and stickers only have one combined Scale
+slider, but all four kinds expose `scaleX` and `scaleY` as independent keyframes,
+so animation alone can produce a non-uniform pose on any of them.
 
-Both were found while extracting the media layers out of `PreviewPanel` and are
-marked `D17` in the code at the exact branches. They were deliberately left
-unfixed there: mixing a visible rendering change into a structural refactor is
-how regressions hide.
-Impact: preview does not match export for every image clip with a non-default
-transform. Images are common — photos, logos, PNG overlays — so this is
-frequently hit, not theoretical.
-Effort: ~2 hours. Apply the resolved pose in the image branch as the video
-branch already does, then extend `parity.test.ts` to pin that image and video
-layers resolve their pose identically. The transition-incoming case is a few
-minutes more.
-Owner: next engineering slot.
+Text and stickers are unaffected, and it is worth knowing why: the preview builds
+their transform as `translate(-50%,-50%) rotate() scale()` — already T·R·S, the
+same order `drawText` uses — and sticker scale is baked into the drawn size
+rather than expressed as a transform, so order cannot matter there. Media layers
+are the only ones out of step.
+
+Impact: user trust, same class as D15 and D17 — the preview does not predict the
+output. The export is the deliverable and is self-consistent, so the preview is
+the side that is wrong.
+Effort: one line, reordering `poseTransform` to `translate() rotate() scale()`,
+plus a test. Note that the existing parity tests **cannot** catch this:
+`clipTransformAt` returns the same six numbers either way, and the order only
+exists in the emitted CSS string and the canvas call sequence. Pinning it needs a
+test on the transform string or on the composed matrices.
+Owner: next engineering slot. Deliberately not folded into the D17 fix — D17 made
+the preview strictly more accurate with no ambiguity, whereas this changes what
+existing projects look like on screen (exports stay identical; the preview starts
+telling the truth), so it deserves its own commit and its own look at the result.
 
 ### D9 — External tooling commits and pushes without instruction
 Twice during hardening work, an unidentified tool in this environment created a commit
@@ -288,3 +292,25 @@ Kept here for traceability; each has a commit.
   was an array literal rebuilt every render, so it could not be listed as a
   dependency; the three refs are now individually stable and collected with
   `useMemo`. `npm run lint` reports zero warnings for the first time.
+- Image clips now honour position, scale, rotation and keyframes in the preview
+  (was D17). `BaseMediaLayer` resolves one pose through `clipTransformAt` above
+  the media-kind branch and both video and image consume it, which is what
+  `drawMediaLayer` already did on the export side. `IncomingMediaLayer` resolves
+  the arriving clip's keyframes the same way instead of reading its static pose.
+- `parity.test.ts` grew a "media layer pose parity" block pinning the invariant
+  D17 had broken: `compileScene` gives image and video layers the same transform
+  and keyframes, and the preview's `clipTransformAt` returns exactly the pose the
+  compositor's `transformAt` computes, for both kinds, with and without
+  keyframes. Ordering D18 was found while writing these and is filed separately
+  because the pose numbers are identical either way — no test on them can see it.
+- Verified after the change: 181 tests, zero lint warnings, and a 9-check browser
+  run confirming the no-media placeholder still takes `BaseMediaLayer`'s early
+  return (no broken `media://` element), text overlay rendering and mousedown
+  selection still work, grid and zoom still apply, playback still advances and
+  freezes, and zero page errors across the whole run. What was **not** verified
+  at runtime is an actual image clip on canvas: creating one needs a media import
+  through `electronAPI`, which does not exist in a browser tab. The repo has no
+  DOM test environment either (`vitest.config.ts` sets `environment: 'node'`,
+  though its `include` already covers `*.test.tsx`), so the image render path is
+  covered by the parity tests and by both branches now consuming one
+  `combinedStyle` object — not by an observed frame.
