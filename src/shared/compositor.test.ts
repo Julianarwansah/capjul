@@ -22,12 +22,17 @@ function mockCtx() {
     save: () => log.push('save'),
     restore: () => log.push('restore'),
     setTransform: (...a: number[]) => log.push(`setTransform(${a.join(',')})`),
-    fillRect: (x: number, y: number, w: number, h: number) => log.push(`fillRect(${x},${y},${w},${h})`),
+    fillRect: (x: number, y: number, w: number, h: number) =>
+      log.push(`fillRect(${[x, y, w, h].map(round).join(',')})`),
     translate: (x: number, y: number) => log.push(`translate(${round(x)},${round(y)})`),
     rotate: (r: number) => log.push(`rotate(${round(r)})`),
     scale: (x: number, y: number) => log.push(`scale(${round(x)},${round(y)})`),
     drawImage: (el: unknown, ...rest: number[]) =>
       log.push(`drawImage(${(el as { __name?: string }).__name},${rest.map(round).join(',')})`),
+    createRadialGradient: (...a: number[]) => {
+      log.push(`radial(${a.map(round).join(',')})`)
+      return { addColorStop: (o: number, c: string) => log.push(`stop(${round(o)},${c})`) }
+    },
     beginPath: () => log.push('beginPath'),
     rect: (...a: number[]) => log.push(`rect(${a.map(round).join(',')})`),
     clip: () => log.push('clip'),
@@ -245,5 +250,60 @@ describe('drawSceneFrame with a transition', () => {
     drawSceneFrame(ctx, compileScene(p), sourcesFor(p), 4.5)
     // At progress 1 the outgoing side carries the full radius: 16/1280 * 1280.
     expect(log).toContain('filter=blur(16px)')
+  })
+})
+
+describe('drawSceneFrame overlay effects', () => {
+  const withEffects = (effects: Array<{ id: string; intensity: number }>) =>
+    project({ clips: [clip({ effects })] })
+
+  it('draws letterbox bars as a fraction of canvas height, top and bottom', () => {
+    const p = withEffects([{ id: 'letterbox', intensity: 1 }])
+    const { ctx, log } = mockCtx()
+    drawSceneFrame(ctx, compileScene(p), sourcesFor(p), 1)
+    // 0.12 of 720 = 86.4 per bar.
+    expect(log).toContain('fillRect(0,0,1280,86.4)')
+    expect(log).toContain('fillRect(0,633.6,1280,86.4)')
+  })
+
+  it('scales letterbox with intensity', () => {
+    const p = withEffects([{ id: 'letterbox', intensity: 0.5 }])
+    const { ctx, log } = mockCtx()
+    drawSceneFrame(ctx, compileScene(p), sourcesFor(p), 1)
+    expect(log).toContain('fillRect(0,0,1280,43.2)')
+  })
+
+  it('draws the vignette as a scaled circular gradient with the shared stops', () => {
+    const p = withEffects([{ id: 'vignette', intensity: 1 }])
+    const { ctx, log } = mockCtx()
+    drawSceneFrame(ctx, compileScene(p), sourcesFor(p), 1)
+    // The context is scaled by the ellipse axis ratio, then a circle of the
+    // y-radius is gradient-filled: the same ellipse the preview's CSS radii name.
+    expect(log).toContain(`scale(${round(1280 / 720)},1)`)
+    expect(log).toContain(`radial(0,0,0,0,0,${round(Math.SQRT2 / 2 * 720)})`)
+    expect(log).toContain('stop(0.3,rgba(0,0,0,0))')
+    expect(log).toContain('stop(1,rgba(0,0,0,0.85))')
+  })
+
+  it('draws nothing for grain, which has no canvas counterpart', () => {
+    const plain = withEffects([])
+    const grainy = withEffects([{ id: 'grain', intensity: 1 }])
+    const a = mockCtx()
+    const b = mockCtx()
+    drawSceneFrame(a.ctx, compileScene(plain), sourcesFor(plain), 1)
+    drawSceneFrame(b.ctx, compileScene(grainy), sourcesFor(grainy), 1)
+    expect(b.log).toEqual(a.log)
+  })
+
+  it('reads overlay effects from the bottom media layer only', () => {
+    // An overlay clip carrying letterbox must not bar the frame: the preview
+    // reads effects from the clip at the bottom of the paint stack, and the two
+    // must agree about whose effects these are.
+    const p = project({
+      clips: [clip({ id: 'base', trackId: 't0' }), clip({ id: 'over', trackId: 't1', effects: [{ id: 'letterbox', intensity: 1 }] })],
+    })
+    const { ctx, log } = mockCtx()
+    drawSceneFrame(ctx, compileScene(p), sourcesFor(p), 1)
+    expect(log.filter(l => l.startsWith('fillRect'))).toEqual(['fillRect(0,0,1280,720)'])
   })
 })

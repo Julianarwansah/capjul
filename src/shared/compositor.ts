@@ -3,6 +3,7 @@
 // how a Scene becomes pixels, so preview and export cannot drift.
 import { isActiveAt, mediaTimeAt, stickerTransformAt, textTransformAt, transformAt, type Scene, type SceneImageLayer, type SceneLayer, type SceneStickerLayer, type SceneTextLayer, type SceneVideoLayer } from './scene'
 import { hasTransitionClip, poseBlurPx, poseClipRect, transitionPose, type TransitionClipPose } from './transition-pose'
+import { VIGNETTE_RADIUS_FRACTIONS, letterboxFraction, vignetteStops } from './overlay-effects'
 import { rasterizeTextCentred, stickerPlacement, loadSvgImage } from './text-rasterizer'
 import { stickerSvg } from './sticker-svgs'
 import { clipAnim } from './text-animation'
@@ -208,6 +209,54 @@ function drawText(
 }
 
 /**
+ * The two overlay effects a canvas can draw exactly, painted after every layer
+ * so they cover the composed frame the way the preview's DOM overlays do. Both
+ * take their numbers from shared/overlay-effects.ts, which the preview's CSS
+ * also reads, so the exported vignette is the vignette that was on screen.
+ *
+ * Grain is not here: it is animated noise with a blend mode, which a
+ * deterministic frame pump cannot reproduce, and it stays preview-only (D23).
+ */
+function drawOverlayEffects(
+  ctx: CanvasRenderingContext2D,
+  scene: Scene,
+  effects: ReadonlyArray<{ id: string; intensity: number }>,
+) {
+  const { width: W, height: H } = scene
+  for (const e of effects) {
+    if (e.id === 'letterbox') {
+      const f = letterboxFraction(e.intensity)
+      if (f <= 0) continue
+      ctx.save()
+      ctx.filter = 'none'
+      ctx.globalAlpha = 1
+      ctx.fillStyle = 'black'
+      ctx.fillRect(0, 0, W, f * H)
+      ctx.fillRect(0, H - f * H, W, f * H)
+      ctx.restore()
+    } else if (e.id === 'vignette') {
+      const { inner, rim } = vignetteStops(e.intensity)
+      const { rx, ry } = VIGNETTE_RADIUS_FRACTIONS
+      // A canvas radial gradient is a circle; scaling the context by the axis
+      // ratio turns it into the same centred ellipse the preview's CSS radii
+      // describe, stops and all.
+      const sx = (rx * W) / (ry * H)
+      ctx.save()
+      ctx.filter = 'none'
+      ctx.globalAlpha = 1
+      ctx.translate(W / 2, H / 2)
+      ctx.scale(sx, 1)
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, ry * H)
+      g.addColorStop(inner, 'rgba(0,0,0,0)')
+      g.addColorStop(1, rim)
+      ctx.fillStyle = g
+      ctx.fillRect(-W / (2 * sx), -H / 2, W / sx, H)
+      ctx.restore()
+    }
+  }
+}
+
+/**
  * The transition covering `t`, with its progress, or null. Exported because the
  * frame pump must seek the incoming clip's video even before that clip is
  * "active" by its own time range - during the first half of a blend only the
@@ -281,6 +330,15 @@ export function drawSceneFrame(
     if (!isActiveAt(layer, t)) continue
     drawLayer(layer, undefined)
   }
+
+  // Overlay effects belong to the clip at the bottom of the paint stack, which is
+  // the clip the preview reads them from; they cover the whole composed frame.
+  const base = scene.layers.find(
+    (l): l is SceneVideoLayer | SceneImageLayer =>
+      (l.kind === 'video' || l.kind === 'image') && isActiveAt(l, t),
+  )
+  if (base && base.effects.length > 0) drawOverlayEffects(ctx, scene, base.effects)
+
   ctx.restore()
 }
 

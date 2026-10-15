@@ -1,6 +1,7 @@
 import { STICKER_BASE_RATIO } from '../../shared/sticker-assets'
 import { stickerDataUrl } from '../../shared/sticker-svgs'
 import { clipAnim } from '../../shared/text-animation'
+import { VIGNETTE_RADIUS_FRACTIONS, letterboxFraction, vignetteStops } from '../../shared/overlay-effects'
 import { stickerTransformAt, textTransformAt } from '../../shared/scene'
 import type { Caption, Clip, StickerClip, TextClip } from '../../types'
 
@@ -119,18 +120,30 @@ const GRAIN_SVG = `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='h
 /** The effects that are pure CSS layers rather than filters on the media
  *  element: vignette, grain and letterbox. Unknown ids render nothing. */
 export function EffectOverlays({ effects }: { effects: Clip['effects'] }) {
+  // The numbers come from shared/overlay-effects.ts, which the export compositor
+  // reads too: a vignette or letterbox seen here is the one that exports. Grain
+  // has no compositor counterpart and stays preview-only (D23).
   return (
     <>
       {effects.map(e => {
-        if (e.id === 'vignette') return (
-          <div
-            key="vignette"
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              background: `radial-gradient(ellipse at center, transparent ${30 + (1 - e.intensity) * 40}%, rgba(0,0,0,${e.intensity * 0.85}) 100%)`,
-            }}
-          />
-        )
+        if (e.id === 'vignette') {
+          const { inner, rim } = vignetteStops(e.intensity)
+          const { rx, ry } = VIGNETTE_RADIUS_FRACTIONS
+          return (
+            <div
+              key="vignette"
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                // Explicit ellipse radii in container-query units, so the
+                // gradient is the same shape the compositor's scaled circular
+                // gradient draws at any canvas size.
+                background:
+                  `radial-gradient(ellipse ${rx * 100}cqw ${ry * 100}cqh at center,` +
+                  ` transparent ${inner * 100}%, ${rim} 100%)`,
+              }}
+            />
+          )
+        }
         if (e.id === 'grain') return (
           <div
             key="grain"
@@ -142,12 +155,15 @@ export function EffectOverlays({ effects }: { effects: Clip['effects'] }) {
             }}
           />
         )
-        if (e.id === 'letterbox') return (
-          <>
-            <div key="lb-top" className="absolute pointer-events-none" style={{ top: 0, left: 0, right: 0, height: `${e.intensity * 12}%`, background: 'black' }} />
-            <div key="lb-bot" className="absolute pointer-events-none" style={{ bottom: 0, left: 0, right: 0, height: `${e.intensity * 12}%`, background: 'black' }} />
-          </>
-        )
+        if (e.id === 'letterbox') {
+          const height = `${letterboxFraction(e.intensity) * 100}%`
+          return (
+            <>
+              <div key="lb-top" className="absolute pointer-events-none" style={{ top: 0, left: 0, right: 0, height, background: 'black' }} />
+              <div key="lb-bot" className="absolute pointer-events-none" style={{ bottom: 0, left: 0, right: 0, height, background: 'black' }} />
+            </>
+          )
+        }
         return null
       })}
     </>
