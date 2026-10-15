@@ -70,57 +70,31 @@ rewrite; the other three are a separate decision.
 Owner: next engineering slot; **Julian** for what zoom-out, blur and flash should
 degrade to on the fallback.
 
-### D23 — Three overlay effects and chroma key are still preview-only
-**Narrowed from its original scope.** The nine CSS-filter effects (blur, glow,
-sharpen, chromatic, noir, warm, cool, vivid, matte) now export through the
-compositor: `shared/layer-filter.ts` composes preset, grading and effects into
-one string that both the preview and `compileScene` use, and `drawMediaLayer`
-applies it through `ctx.filter`, which accepts the same function list CSS does.
-That half is recorded under "Resolved".
-
-What is left is the part that was never cheap:
-- **Vignette, film grain and letterbox.** `buildEffectsCssFilter` returns an empty
-  string for all three; they are painted by `EffectOverlays` as DOM — a radial
-  gradient, a CSS animation and two black bars. None has a canvas counterpart, so
-  a clip that looks letterboxed in the preview exports full-frame.
+### D23 — Grain and chroma key are still preview-only
+**Narrowed twice.** The nine CSS-filter effects export through the compositor
+(`shared/layer-filter.ts`), and letterbox and vignette now do too: both engines
+take their numbers from `shared/overlay-effects.ts`, the compositor drawing bars
+and a scaled circular gradient after every layer, the preview writing the same
+radii as container-query units and the same stops into its CSS gradient. What is
+left:
+- **Film grain.** Animated noise with an `overlay` blend mode. A deterministic
+  frame pump cannot reproduce it without a seeded per-frame noise source, and an
+  unseeded one would make two exports of the same project differ. Preview-only by
+  nature, not by omission.
 - **Chroma key.** `useChromaKey` keys the base layer in the preview and
-  `grep chroma src/shared/compositor.ts` returns nothing.
-- **The `filtergraph` engine drops all of it**, effects included: `RenderLayer`
-  carries brightness, contrast and saturation but no filter field, so the nine
-  newly-exporting effects export only on the default compositor engine. The UI
-  already warns when the fallback engages (see D7's correction), which is the
-  mitigation, not a fix.
-Impact: user-visible and silent for the three overlay effects and chroma; the
-filtergraph gap at least announces itself.
-Effort: the overlay effects are each a small canvas routine (a radial gradient
-fill, a noise tile, two rects) but they must be drawn in layer order to compose
-correctly with what is above and below them, which is the real design question.
-Chroma key is a per-pixel pass and the most expensive item in this register
-after D7. Mapping the nine CSS filters onto ffmpeg filters for the fallback is
-~0.5 day and independent of the rest.
-Owner: unowned. The filtergraph mapping is the piece worth taking first.
-
-### D24 — Track mute is honoured by the preview and ignored by both export engines
-`track.muted` is read in exactly two places: `useAudioClips` ORs it into each
-audio element's `muted`, and — until D16 removed it — `OverlayVideos` hid the
-overlay entirely. Neither `compositor.ts` nor `render-plan.ts` reads it; the
-compositor paints every active layer and the filtergraph path checks only
-`clip.muted`, which is the per-clip toggle in the inspector, not the track one.
-
-Muting a track in the timeline head therefore silences the preview and exports
-the audio anyway.
-Impact: user-visible, and the mute button gives no hint that it is preview-only.
-Two sub-decisions are tangled in it: whether track mute should mean "silence this
-track's audio" (the conventional reading, and what the timeline's speaker icon
-implies) or "hide this track" (what the overlay code used to assume), and which
-of the two the export should honour. Silencing audio is almost certainly right,
-since hiding a track is what a track's visibility control would be for and there
-is no such control.
-Effort: small once the semantics are picked — `render-plan.ts` needs
-`trackMuted(clip.trackId)` beside its `clip.muted` check, and the compositor
-needs the same test before it mixes a layer's audio. It is a decision first and
-an edit second.
-Owner: **Julian** for the semantics; engineering after.
+  `grep chroma src/shared/compositor.ts` returns nothing. A per-pixel pass; the
+  most expensive single item in this register after D7.
+- **The `filtergraph` engine drops all of it** - effects, letterbox and vignette
+  included: `RenderLayer` carries brightness, contrast and saturation but no
+  filter field and no overlay-effect list. The fallback warning names it.
+Impact: user-visible and silent for grain and chroma; the filtergraph gap at
+least announces itself.
+Effort: grain needs a seeded noise tile per frame and a decision on whether two
+exports of one project must be byte-identical (they should). Chroma is a
+per-pixel pass in canvas against a `chromakey` filter in ffmpeg, which does
+exist. Mapping the nine CSS filters plus the two overlay effects onto ffmpeg for
+the fallback is about a day and independent of the rest.
+Owner: unowned. The filtergraph mapping remains the piece worth taking first.
 
 ### D25 — Pitch shift is stored, has a live-looking slider, and is rendered nowhere
 `AudioClipSchema` carries `pitch` (-12..12 semitones) and `AudioInspector` had an
@@ -995,3 +969,25 @@ Kept here for traceability; each has a commit.
   no accessible names at all, so they are labelled now too. As with the RightPanel
   a11y additions, that is a behaviour change riding in a feature commit and is
   listed here rather than left implicit in the diff.
+- Letterbox and vignette export through the compositor (D23 narrowed again).
+  `shared/overlay-effects.ts` holds the numbers both engines draw from: the bar
+  fraction of canvas height, the vignette's gradient stops, and the ellipse radii
+  as fractions - the CSS `farthest-corner` ellipse for a centred box, sqrt(2)/2 of
+  each axis, stated once so neither side can drift into its own idea of the
+  shape. The compositor paints both after every layer, reading them off the
+  bottom media layer's effects exactly as the preview does; the preview writes
+  the same radii as container-query units and the same stops into its CSS
+  gradient, and a canvas radial gradient being a circle, the compositor scales
+  the context by the axis ratio to draw the ellipse the CSS names.
+  Grain stays preview-only and the entry says why in one line: it is animated
+  noise under a blend mode, and an unseeded per-frame noise source would make two
+  exports of the same project differ.
+  Five mock-context tests pin the compositor side - bar rects at the shared
+  fraction, scaling with intensity, the gradient's radius and both stops, that
+  grain changes nothing in the call sequence, and that an overlay clip's effects
+  do not bar the frame because these belong to the bottom layer only. Five
+  browser checks read the preview's computed gradient and bar heights back and
+  parse the numbers out, because Chrome serialises a radial-gradient its own way
+  - implicit `ellipse`, no `at center`, four decimals, spaces inside the rgba -
+  and substring-matching that serialization measured Chrome, not the app. The
+  first attempt did exactly that and failed two checks whose values were correct.
