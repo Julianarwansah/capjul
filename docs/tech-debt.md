@@ -118,6 +118,45 @@ needs the same test before it mixes a layer's audio. It is a decision first and
 an edit second.
 Owner: **Julian** for the semantics; engineering after.
 
+### D25 — Pitch shift is stored, has a live-looking slider, and is rendered nowhere
+`AudioClipSchema` carries `pitch` (-12..12 semitones) and `AudioInspector` had an
+enabled slider for it. Nothing reads the field: `useAudioClips` never touches it,
+and `render-plan.ts` emits `atempo` only for `speed` — there is no `asetrate`, no
+`rubberband`, nothing. So the slider moved a number and changed no sound in
+either the preview or the export. Found while scoping the markers feature, by
+grepping the field rather than by a user report; it had the same shape as D7 but
+worse, because D7's sliders at least say they are disabled.
+
+The slider is now disabled with a hint saying exactly that, matching D7's
+treatment. Implementing it is a real two-backend job, not a wiring job: export
+needs `asetrate=sr*2^(p/12),aresample=sr,atempo=2^(-p/12)` (the `atempoChain`
+helper already exists for the speed side, and `atempo` is limited to 0.5-2 per
+instance so a 12-semitone shift needs chaining), and the preview cannot use
+`playbackRate`, which shifts tempo with pitch — a media element source has no
+`detune`, so it needs a Web Audio graph.
+Impact: one dead control, now honest about it.
+Effort: export ~half a day including the parity test against the preview; preview
+another half to a day for the Web Audio path. Do export first only if the preview
+can follow in the same change — shipping one side would recreate D22's shape.
+Owner: next engineering slot.
+
+### D26 — Audio fades export but the preview plays them flat
+`render-plan.ts` emits `afade=t=in` / `afade=t=out` for audio clips, so a fade set
+in `AudioInspector` is in every export. `useAudioClips` computes the element's
+volume from keyframed volume and mute only — the fade envelope is never applied,
+so the preview plays the clip at full level right up to its ends and the fade
+arrives as a surprise in the exported file. Same family as D22 and D23: the export
+is right and the preview is the side lying.
+Impact: user-visible on every faded audio clip; the fade sliders work, they just
+work late.
+Effort: small. The envelope is a pure function of `(t - start, duration, fadein,
+fadeout)` and belongs beside `interpolate` in a shared module so the preview and
+any future visualisation agree; `useAudioClips` multiplies it into the value it
+already writes to `el.volume`. Verifiable with the same `HTMLMediaElement`
+property-spy technique recorded under D22, by asserting the volume the preview
+assigns at times inside the fade.
+Owner: next engineering slot.
+
 ### D9 — External tooling commits and pushes without instruction
 Five times now an unidentified tool in this environment created commits and
 pushed them, using the local git identity, without being asked. One push raced a
@@ -723,3 +762,62 @@ Kept here for traceability; each has a commit.
   lives, so every case returned `null` — indistinguishable from a fix that does
   nothing. Any spy like this needs an explicit "did the spy install" assertion,
   or a broken instrument reads as a broken feature.
+- Timeline markers shipped (schema v5). `M` toggles a marker on the playhead's
+  frame, `[` and `]` jump to the previous and next one, dragged clips snap to
+  them, and the ruler paints a flag per marker with a hover/focus delete button.
+  The toolbar carries the same toggle plus a clear-all that shows the count and
+  disappears with the last marker. Markers go through `mutate()`, so undo and
+  autosave cover them for free, and they are stored sorted by time whatever order
+  they arrive in.
+  Four decisions are recorded because each is the kind that gets "tidied" later:
+  - **No label field.** A label with no rename affordance would be a stored value
+    nothing can set — the exact shape of D7 and D25. If labels are wanted, the
+    rename UI ships in the same change.
+  - **The flags are a sibling layer of the ruler, not children of it.** The ruler
+    is `role="slider"`, which must not contain focusable descendants, and a
+    marker's delete button is one. The layer is `pointer-events: none` except for
+    the buttons, so the ruler's click-to-seek still owns the whole strip.
+  - **One binding both adds and removes**, with "on the playhead" meaning the same
+    frame. Undoing a marker must not require aiming at a 7px flag.
+  - **Markers sort last among snap candidates**, appended rather than inserted, so
+    the tie-break order that clips and stickers already rely on cannot change.
+    The test for it uses exact binary fractions for the same reason the sticker
+    one does.
+  Markers deliberately never reach the export; the schema comment says so, so a
+  future reader does not have to discover it by exporting.
+  36 new tests: 20 on the pure toggle/neighbour/tolerance logic, 5 on snapping,
+  6 on `formatTimecode`, 5 on the v4→v5 migration including that a hand-edited
+  non-array becomes an empty list while a malformed entry is still rejected.
+  Verified with 23 browser checks driven by real CDP key events, not by calling
+  the handler: toggle on and off, flag positions at `time * pxPerSec`, toolbar
+  label and `aria-pressed` flipping, `[`/`]` stepping without re-selecting and
+  without wrapping at the ends, per-marker delete, undo restoring it, and clear
+  removing the clear button itself.
+- `formatTimecode` lives in `shared/frame-time.ts`, not in the component that
+  paints the flags. Two reasons: a component file may only export components or
+  Fast Refresh warns, and deriving minutes, seconds and frames all from the frame
+  index keeps the readout on the grid `stepFrames` walks — the frame field cannot
+  round up to the frame rate at a second boundary, which a `t % 1` computation can.
+- **A screenshot caught a layout bug every DOM assertion had passed over.** The
+  playhead line drawn across the tracks was positioned against the page, not the
+  timeline: it ran from the top bar, through the preview, to the bottom of the
+  window. The scroll-content div had no `position: relative`, so the line's
+  containing block was the initial one. The marquee box shared the bug, and the
+  proof that `relative` is the fix rather than a workaround is that
+  `useMarqueeSelection` already adds `labelWidth` and `rulerHeight` back into its
+  rect — coordinate math written for exactly the container that was missing. One
+  word in one style object; before and after screenshots are the evidence.
+  It survived this long because every earlier timeline verification asserted
+  behaviour — drag, trim, marquee select and clear — and none of them looked at
+  where an overlay was painted. A marquee that appears 140px from the cursor still
+  selects the right clips, so a behaviour-only check calls it passing.
+- A marker on the playhead's exact frame is visually subsumed by the playhead
+  head, which carries `z-20` inside the ruler. That is intended and commented at
+  the marker layer: the playhead is the primary cursor and must never be covered,
+  and the marker is not lost — the toolbar flips to "Hapus Marker" and `[` `]`
+  still land on it. Raising the marker layer above `z-20` would trade a hidden
+  marker for a hidden playhead.
+- The `Pitch Shift` slider in `AudioInspector` is disabled with an honest hint
+  rather than left live, because the field it wrote is read by nothing in either
+  engine. Filed as D25 with the two-backend cost spelled out; this is D7's
+  treatment applied before a user could be misled by it, not after.
