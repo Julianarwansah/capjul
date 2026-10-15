@@ -963,3 +963,35 @@ Kept here for traceability; each has a commit.
   the window; complementary wipe insets; the slide's transform wrapping outside
   the clip pose in canvas order. 9/9, on top of the 16 mock-context and 19 pose
   tests.
+- Tracks can be restacked from the track head (new feature). `moveTrack` swaps a
+  track with its neighbour through `mutate()`, so it is undoable like every other
+  project change, and the guard against moving past either end sits *outside*
+  `mutate()` — returning an unchanged project from inside it would spend an undo
+  step on nothing, the same trap `splitAtPlayhead` guards. The buttons speak in
+  stacking terms (bring forward / send backward, `BringToFront` / `SendToBack`
+  icons) rather than list terms, because in this timeline a lower row paints on
+  top: array order is creation order and `paintOrder` paints index 0 first.
+  Up/down chevrons would have promised the opposite of what they do.
+  **Considered and deliberately not changed:** that convention is inverted
+  relative to Premiere and CapCut, where the top row is the front layer. Fixing
+  it is not a one-line reverse of the rendered list — the array is creation
+  order, so a naive reverse puts the audio track above the video tracks — and
+  every drop target, marquee offset and existing project's mental model moves
+  with it. It is a product decision, recorded here so it is not rediscovered as
+  a bug, and restacking at least gives users a way to arrange the stack they
+  have. If it is ever taken on, `paintOrder` is the single place the change
+  lands, which is what makes it conceivable at all.
+  Restacking is observable without media and is verified that way: two text
+  clips on two text tracks, and the paint order of the preview canvas read back
+  from the DOM before and after each click, plus the row order in the store and
+  the disabled state at both ends of the stack. Six store tests cover the swap,
+  the clamps, the unknown id, the single undo step, and — the one that ties it to
+  the rest of the editor — that `paintOrder`'s output follows the restack, which
+  is only assertable because D16 made paint order a function of track index.
+- `⌘A` selects every clip of every kind and `Escape` clears the selection, both
+  added to the shortcut table and therefore to the overlay, which now lists 29
+  rows. While adding buttons to the track head, `TinyBtn` gained `title`,
+  `aria-label` and `disabled`; the mute and lock buttons that already used it had
+  no accessible names at all, so they are labelled now too. As with the RightPanel
+  a11y additions, that is a behaviour change riding in a feature commit and is
+  listed here rather than left implicit in the diff.
