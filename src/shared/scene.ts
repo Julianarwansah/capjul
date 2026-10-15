@@ -1,11 +1,13 @@
 import { buildCssFilter, colorAdjustFactors } from './color-adjust'
 import { interpolate } from './keyframe-interpolate'
+import { paintOrder } from './paint-order'
 import type { Clip, Keyframe, Project, StickerClip, TextClip } from './project-schema'
 
 // The Phase 2 scene model: a DOM-independent description of what the compositor
-// must draw, in paint order. The renderer compositor and (later) the preview
-// both consume this, which is what makes parity structural rather than hoped
-// for. No DOM types here so it stays testable in node.
+// must draw, in paint order. Both consumers of stacking order go through
+// paintOrder() in ./paint-order, so the compositor and the preview cannot
+// disagree about which clip is on top. No DOM types here so it stays testable in
+// node.
 
 export interface SceneTransform {
   x: number
@@ -62,23 +64,18 @@ export interface Scene {
   layers: SceneLayer[]
 }
 
-// Text and sticker tracks that predate real track creation have ids that are
-// not in project.tracks; overlays must still paint above video, so unknown
-// tracks sort high rather than to the bottom.
-const OVERLAY_Z = 1000
-
 export function compileScene(project: Project): Scene {
-  const trackZ = new Map(project.tracks.map((t, i) => [t.id, i]))
-  const staged: Array<{ z: number; layer: SceneLayer }> = []
+  const layers = paintOrder(project).map((item): SceneLayer => {
+    const start = item.clip.startTime
+    const end = start + item.clip.duration
+    if (item.kind === 'text') return { kind: 'text', clip: item.clip, start, end }
+    if (item.kind === 'sticker') return { kind: 'sticker', clip: item.clip, start, end }
 
-  for (const clip of project.clips) {
-    if (clip.duration <= 0) continue
-    const media = project.media.find(m => m.id === clip.mediaId)
-    if (!media) continue
+    const clip = item.clip
     const base: SceneLayerBase = {
-      mediaId: media.id,
-      start: clip.startTime,
-      end: clip.startTime + clip.duration,
+      mediaId: item.media.id,
+      start,
+      end,
       transform: {
         x: clip.x, y: clip.y,
         scaleX: clip.scaleX, scaleY: clip.scaleY,
@@ -88,29 +85,10 @@ export function compileScene(project: Project): Scene {
       keyframes: clip.keyframes ?? [],
       filter: [clip.filter ?? '', buildCssFilter(colorAdjustFactors(clip))].filter(Boolean).join(' '),
     }
-    const layer: SceneLayer = media.type === 'image'
+    return item.media.type === 'image'
       ? { kind: 'image', ...base }
       : { kind: 'video', ...base, mediaStart: clip.mediaStart, speed: clip.speed || 1 }
-    staged.push({ z: trackZ.get(clip.trackId) ?? OVERLAY_Z, layer })
-  }
-
-  for (const clip of project.textClips) {
-    if (clip.duration <= 0) continue
-    staged.push({
-      z: trackZ.get(clip.trackId) ?? OVERLAY_Z,
-      layer: { kind: 'text', clip, start: clip.startTime, end: clip.startTime + clip.duration },
-    })
-  }
-
-  for (const clip of project.stickerClips) {
-    if (clip.duration <= 0) continue
-    staged.push({
-      z: trackZ.get(clip.trackId) ?? OVERLAY_Z,
-      layer: { kind: 'sticker', clip, start: clip.startTime, end: clip.startTime + clip.duration },
-    })
-  }
-
-  staged.sort((a, b) => a.z - b.z || a.layer.start - b.layer.start)
+  })
 
   return {
     width: project.width,
@@ -118,7 +96,7 @@ export function compileScene(project: Project): Scene {
     fps: project.fps,
     duration: project.duration,
     background: project.backgroundColor,
-    layers: staged.map(s => s.layer),
+    layers,
   }
 }
 

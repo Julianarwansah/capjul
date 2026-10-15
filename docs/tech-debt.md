@@ -73,6 +73,74 @@ Owner: next engineering slot; **Julian** if the answer is to cut transitions fro
 the UI instead. Cutting is roughly an hour and would close the same broken
 promise from the other direction.
 
+### D22 — Clip speed is applied on export and ignored in the preview
+`mediaTimeAt` in `scene.ts` computes `mediaStart + (t - start) * speed`, and the
+compositor seeks every video layer through it. The preview does not multiply by
+speed anywhere: both the base layer's sync effect and the overlay sync compute
+`currentTime - clip.startTime + clip.mediaStart`. `clip.speed` is only ever
+applied to *audio* clips, in `useAudioClips`, as `playbackRate`.
+
+So a video clip set to 2× plays at normal speed in the preview and exports at
+double speed. The speed presets in `ClipInspector` write the field and the
+slider appears to do nothing until the export finishes.
+Impact: high, and the opposite direction from most preview/export drift — here
+the export is the one that is right and the preview is lying. Found by reading
+the two sync effects against `mediaTimeAt` while migrating the preview to the
+shared paint order (D16); no user report.
+Effort: small for the seek math — both effects need the `* speed` factor, and
+`shared/scene.ts` already exports the correct formula as `mediaTimeAt`, so the
+fix is to call it rather than reimplement it. The awkward part is playback: the
+base video element plays at its natural rate while `currentTime` advances by
+wall clock, so a 2× clip also needs `video.playbackRate = speed` or it will
+drift from the playhead between sync corrections. Needs a real media file to
+verify, so it cannot be checked in a plain browser.
+Owner: next engineering slot.
+
+### D23 — Clip effects and chroma key are rendered by the preview only
+`Preview/index.tsx` builds each media layer's CSS filter from three parts:
+`clip.filter` (the preset), `buildCssFilter(colorAdjustFactors(clip))` (the six
+numeric grading fields) and `buildEffectsCssFilter(clip.effects)`. `compileScene`
+builds the same string from only the first two. So the twelve entries in
+`shared/effects.ts` — blur, glow, sharpen, chromatic, noir, warm, cool, vivid,
+matte, plus the overlay-driven vignette, grain and letterbox — are visible in the
+preview and absent from the export. `EffectOverlays` paints the three overlay
+effects as DOM, which has no compositor counterpart at all.
+
+Chroma key is the same shape: `useChromaKey` keys the base layer in the preview,
+and `grep chroma src/shared/compositor.ts` returns nothing.
+Impact: user-visible and silent. Adding an effect or keying a green screen shows
+in the preview and disappears on export, with no warning at either point.
+Note this is *not* D7. D7 is the six numeric grading fields, which do export
+through `colorAdjustFactors`; this is the effects list and chroma, which do not.
+Effort: the nine CSS-filter effects are close to free — canvas `ctx.filter`
+accepts the same string, so adding `buildEffectsCssFilter` to `compileScene`'s
+filter would carry them into the compositor engine. The three overlay effects and
+chroma key need real compositor work. The filtergraph engine needs all of it
+expressed as ffmpeg filters instead.
+Owner: unowned. The nine-effect part is worth doing before the rest is scoped.
+
+### D24 — Track mute is honoured by the preview and ignored by both export engines
+`track.muted` is read in exactly two places: `useAudioClips` ORs it into each
+audio element's `muted`, and — until D16 removed it — `OverlayVideos` hid the
+overlay entirely. Neither `compositor.ts` nor `render-plan.ts` reads it; the
+compositor paints every active layer and the filtergraph path checks only
+`clip.muted`, which is the per-clip toggle in the inspector, not the track one.
+
+Muting a track in the timeline head therefore silences the preview and exports
+the audio anyway.
+Impact: user-visible, and the mute button gives no hint that it is preview-only.
+Two sub-decisions are tangled in it: whether track mute should mean "silence this
+track's audio" (the conventional reading, and what the timeline's speaker icon
+implies) or "hide this track" (what the overlay code used to assume), and which
+of the two the export should honour. Silencing audio is almost certainly right,
+since hiding a track is what a track's visibility control would be for and there
+is no such control.
+Effort: small once the semantics are picked — `render-plan.ts` needs
+`trackMuted(clip.trackId)` beside its `clip.muted` check, and the compositor
+needs the same test before it mixes a layer's audio. It is a decision first and
+an edit second.
+Owner: **Julian** for the semantics; engineering after.
+
 ### D9 — External tooling commits and pushes without instruction
 Four times now an unidentified tool in this environment created commits and
 pushed them, using the local git identity, without being asked. One push raced a
@@ -151,7 +219,7 @@ now. Five files remain over the threshold:
 | `src/store/editorStore.ts` | 470 |
 | `src/components/ExportDialog.tsx` | 438 |
 | `src/shared/render-plan.ts` | 429 |
-| `src/components/Preview/index.tsx` | 371 |
+| `src/components/Preview/index.tsx` | 395 |
 | `electron/main.ts` | 354 |
 
 The four worst offenders are done, and all four are recorded under "Resolved"
@@ -164,7 +232,11 @@ debt; it is one coherent job — turning a project into an ffmpeg filtergraph.
 
 `Preview/index.tsx` stopped short of 300 deliberately: what remains is store
 wiring, refs, the video sync effects, the playback loop and the drag handler, and
-splitting those further would scatter playback logic rather than clarify it.
+splitting those further would scatter playback logic rather than clarify it. It
+has since grown 371 → 395 from the D16 work, which added the shared paint list and
+the single ordered render pass that replaced four fixed layer groups. The render
+pass is longer but has one job; the layer filter moved out to a module-level
+`layerFilter` helper.
 
 What is left is different in kind from what was fixed. `editorStore` is long
 because it is the single choke point for every mutation — length there is
@@ -181,27 +253,6 @@ Effort: `editorStore` is arguably not worth splitting at all. The other four
 would each be about half a day and would mostly move lines rather than reduce
 coupling.
 Owner: next engineering slot, and only when one of them needs changing anyway.
-
-### D16 — The preview does not consume compileScene, contrary to its own comment
-`src/shared/scene.ts` opens with: "The renderer compositor and (later) the
-preview both consume this, which is what makes parity structural rather than
-hoped for." The compositor does. The preview does not — `PreviewPanel` derives
-its own active layers, track order and paint stacking independently
-(`videoTracks` / `allActiveClips` / `activeTextClips` / `activeStickerClips`),
-and has its own `clipTransform` wrapper around the shared `transformAt`.
-
-What is genuinely shared today is narrower than the comment claims: the
-transform and pose math (`transformAt`, `textTransformAt`, `stickerTransformAt`)
-and the colour-adjust factors, which `parity.test.ts` pins. Layer *selection*
-and *ordering* are not shared, so the two can disagree about which clips are
-visible at time t, or in what order, without any test failing.
-Impact: latent parity risk, and a comment that overstates the guarantee. No
-observed drift bug yet.
-Effort: the comment is a one-line correction. Actually migrating the preview to
-`compileScene` is 2-3 days and needs DOM-layer video elements mapped onto scene
-layers, so it is a real project, not a cleanup.
-Owner: next engineering slot. Correct the comment immediately; schedule the
-migration alongside D7, since both touch the same preview render path.
 
 ### D21 — The filtergraph engine rounds keyframe coefficients to 4 decimals
 `volumeExpression` in `render-plan.ts` passes every coefficient it emits through
@@ -560,3 +611,56 @@ Kept here for traceability; each has a commit.
   `aria-expanded="false"`, bold reaching the overlay and reporting pressed, the
   easing selector appearing at the playhead with all four curves offered, and
   zero page errors throughout.
+- The preview and the compositor now share one paint order (was D16).
+  `shared/paint-order.ts` holds `paintOrder(project)` — every paintable clip with
+  its track index, sorted, excluding zero-length clips and clips whose media is
+  gone — and `activePaintAt(project, t)`, the half-open windowed version.
+  `compileScene` maps that list onto canvas layers; the preview maps it onto DOM
+  elements in the same order. Neither derives its own selection or stacking any
+  more, and `scene.ts`'s opening comment no longer claims a guarantee the code
+  did not provide.
+- **The drift was reachable in two clicks, and is now measured rather than
+  assumed.** The preview rendered all text and then all stickers, so stickers
+  always painted on top. Stacking is a property of the tracks, and
+  `TextPanel`/`StickerPanel` create a track on first use by appending, so adding
+  a sticker before any text put the sticker track lower — the compositor then
+  painted text on top while the preview painted the sticker on top. Verified
+  against a `git worktree` at the pre-fix commit: both orders came back
+  `["text","sticker"]`, identical regardless of which was added first. After the
+  fix the two orders are opposite and each matches its track order. Running the
+  baseline is what makes the check non-vacuous; without it a passing test proves
+  only that the code did something.
+- Four more preview/export divergences fell out of routing overlays through the
+  one `MediaLayer` component, all in the same direction — the preview had its own
+  idea of what an overlay was:
+  - Overlay clips were positioned with `left`/`top`/`width: 40%`/
+    `translate(-50%,-50%)`/`aspectRatio: 16/9` and a 2px white border, while the
+    compositor draws every layer full-canvas with `objectFit: contain` in
+    `POSE_TRANSFORM_ORDER`. The border was never going to appear in an export.
+    Overlays now use the base layer's renderer verbatim.
+  - Image clips on any track above the first were skipped by the preview
+    (`file.type !== 'video'`) and painted by the compositor. They render now.
+  - Overlays carried no filter at all, so grading on a picture-in-picture layer
+    was invisible in the preview and present in the export. Each layer now
+    computes its own through the same `layerFilter` the base uses.
+  - Three hardcoded `useRef`s capped overlays at three video elements. They are
+    now a map keyed by clip id, registered through a React 19 ref cleanup
+    function, so the count is uncapped and stale entries cannot linger.
+- **One behaviour change that is not a parity fix.** `OverlayVideos` hid an
+  overlay whose track was muted; that hide is gone, because track mute is an
+  audio concept everywhere else it is read (`useAudioClips`, the timeline's
+  speaker icon) and because no export engine honoured it — so the preview was
+  hiding a layer that the export would paint. Track mute still does nothing on
+  export, which is a real bug and is filed as D24 rather than fixed here, since
+  fixing it needs a semantics decision first.
+- 22 new tests, including a suite that walks ten project shapes at ten timestamps
+  and asserts `activePaintAt` and `compileScene` return the same sequence of
+  layer kinds. That assertion is the point of the whole change: before it, the
+  two sides could disagree about what is on screen with nothing failing.
+- **Not verified in a browser:** overlay *video* geometry with real media. The
+  dev server in a plain browser cannot resolve the `media://` protocol, so no
+  media clip can be placed on a track there — only text and stickers, which need
+  no file. The four geometry fixes above are therefore backed by the shared
+  renderer being literally the same component for base and overlay, and by
+  reading, not by a rendered frame. Confirming them needs `npm run electron:dev`
+  and a second video track.

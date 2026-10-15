@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Play } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { PreviewControls } from './PreviewControls'
@@ -9,9 +9,25 @@ import {
 import { buildCssFilter, colorAdjustFactors } from '../../shared/color-adjust'
 import { buildEffectsCssFilter } from '../../shared/effects'
 import { findActiveTransition, transitionStyles } from '../../shared/transitions'
-import { BaseMediaLayer, IncomingMediaLayer, OverlayVideos } from './MediaLayers'
+import { activePaintAt, type PaintItem } from '../../shared/paint-order'
+import { IncomingMediaLayer, MediaLayer } from './MediaLayers'
 import { useAudioClips } from './useAudioClips'
 import { useChromaKey } from './useChromaKey'
+import type { Clip } from '../../types'
+
+type ClipPaintItem = Extract<PaintItem, { kind: 'clip' }>
+
+// The CSS filter a media layer draws with. The numeric adjustments and the preset
+// string both come from what `compileScene` puts on the layer, so grading exports;
+// `buildEffectsCssFilter` is preview-only and has no compositor equivalent.
+function layerFilter(clip: Clip | null): string {
+  if (!clip) return ''
+  return [
+    clip.filter ?? '',
+    buildCssFilter(colorAdjustFactors(clip)),
+    buildEffectsCssFilter(clip.effects ?? []),
+  ].filter(Boolean).join(' ')
+}
 
 export function PreviewPanel() {
   const {
@@ -59,41 +75,36 @@ export function PreviewPanel() {
   useEffect(() => { currentTimeRef.current = currentTime }, [currentTime])
   useEffect(() => { durationRef.current = project.duration }, [project.duration])
 
-  // All video tracks sorted by their index (first track = background)
-  const videoTracks = project.tracks.filter(t => t.type === 'video')
+  // Everything on screen at the playhead, in paint order. This list is shared
+  // with the export compositor: `compileScene` maps the same `paintOrder()` onto
+  // canvas layers, and the JSX below maps it onto DOM elements in the same order.
+  // Deriving it here instead was how the two came to disagree about which clips
+  // are visible and which covers which (tech debt D16).
+  const paint = useMemo(() => activePaintAt(project, currentTime), [project, currentTime])
 
-  // Find the video clip at current time for each track
-  const allActiveClips = videoTracks
-    .map(track => project.clips.find(c =>
-      c.trackId === track.id && c.startTime <= currentTime && c.startTime + c.duration > currentTime
-    ))
-    .filter(Boolean) as typeof project.clips
+  // The bottom-most media clip is the base layer: the one that can carry a
+  // transition, and the one the video sync and chroma key effects follow.
+  const baseIndex = paint.findIndex(item => item.kind === 'clip')
+  const basePaintItem = baseIndex >= 0 ? paint[baseIndex] : undefined
+  const baseItem = basePaintItem?.kind === 'clip' ? basePaintItem : undefined
+  const activeClip = baseItem?.clip ?? null
+  const activeMedia = baseItem?.media ?? null
 
-  // Primary clip is the first track's clip
-  const activeClip = allActiveClips[0] ?? null
-  const activeMedia = activeClip ? project.media.find(m => m.id === activeClip.mediaId) : null
+  // Every other media layer, each needing its own video element for time sync.
+  // Held in a map keyed by clip id rather than a fixed pool of refs, so the count
+  // is not capped at three.
+  const overlayItems = useMemo(() => {
+    const items: ClipPaintItem[] = []
+    for (let i = 0; i < paint.length; i++) {
+      const item = paint[i]
+      if (item.kind === 'clip' && i !== baseIndex) items.push(item)
+    }
+    return items
+  }, [paint, baseIndex])
 
-  // Secondary (overlay) clips — tracks 1+
-  const overlayClips = allActiveClips.slice(1)
-
-  // Video refs for overlays (up to 3 extra tracks). Individually stable refs
-  // collected into a memoised array, so the sync effect below can list the array
-  // as a dependency without re-running on every render.
-  const overlayVideoRef1 = useRef<HTMLVideoElement>(null)
-  const overlayVideoRef2 = useRef<HTMLVideoElement>(null)
-  const overlayVideoRef3 = useRef<HTMLVideoElement>(null)
-  const overlayVideoRefs = useMemo(
-    () => [overlayVideoRef1, overlayVideoRef2, overlayVideoRef3],
-    [overlayVideoRef1, overlayVideoRef2, overlayVideoRef3],
-  )
+  const overlayVideos = useRef(new Map<string, HTMLVideoElement>())
 
   const activeTransition = findActiveTransition(project, currentTime)
-  const activeTextClips = project.textClips.filter(t =>
-    t.startTime <= currentTime && t.startTime + t.duration > currentTime
-  )
-  const activeStickerClips = project.stickerClips.filter(s =>
-    s.startTime <= currentTime && s.startTime + s.duration > currentTime
-  )
 
   // Sync video with timeline
   useEffect(() => {
@@ -107,18 +118,15 @@ export function PreviewPanel() {
 
   // Sync overlay video clips (multi-layer)
   useEffect(() => {
-    overlayClips.forEach((clip, i) => {
-      const ref = overlayVideoRefs[i]?.current
-      if (!ref) return
-      const media = project.media.find(m => m.id === clip.mediaId)
-      const newSrc = media ? `media://${media.path}` : ''
-      if (ref.src !== newSrc) ref.src = newSrc
-      const clipTime = currentTime - clip.startTime + clip.mediaStart
-      if (Math.abs(ref.currentTime - clipTime) > 0.1) ref.currentTime = Math.max(0, clipTime)
-      if (isPlaying) ref.play().catch(() => {})
-      else ref.pause()
-    })
-  }, [currentTime, isPlaying, overlayClips, project.media, overlayVideoRefs])
+    for (const item of overlayItems) {
+      const el = overlayVideos.current.get(item.clip.id)
+      if (!el) continue
+      const clipTime = currentTime - item.clip.startTime + item.clip.mediaStart
+      if (Math.abs(el.currentTime - clipTime) > 0.1) el.currentTime = Math.max(0, clipTime)
+      if (isPlaying) el.play().catch(() => {})
+      else el.pause()
+    }
+  }, [currentTime, isPlaying, overlayItems])
 
   // Sync video B during transitions
   useEffect(() => {
@@ -211,16 +219,10 @@ export function PreviewPanel() {
     window.addEventListener('mouseup', handleUp)
   }
 
-  // Get CSS filter for active clip. The numeric adjustments come from the same
-  // factors the encoder uses; clip.filter is a preset string with no export
-  // equivalent yet (tech debt D7).
-  const clipFilter = activeClip
-    ? [
-        activeClip.filter ?? '',
-        buildCssFilter(colorAdjustFactors(activeClip)),
-        buildEffectsCssFilter(activeClip.effects ?? []),
-      ].filter(Boolean).join(' ')
-    : ''
+  // The base layer grades the clip at the playhead. During a transition it still
+  // shows the outgoing clip's grading, which is what it did before the layer list
+  // was shared; the incoming clip deliberately carries none.
+  const clipFilter = layerFilter(activeClip)
 
   return (
     <div ref={rootRef} className="flex flex-col h-full" style={{ background: 'var(--color-bg-base)' }}>
@@ -248,71 +250,93 @@ export function PreviewPanel() {
             containerType: 'size',
           }}
         >
-          {/* Background video/image — the clip at the playhead, or the outgoing
-              half while a transition runs */}
-          <BaseMediaLayer
-            media={activeTransition ? activeTransition.mediaA : activeMedia}
-            clip={activeTransition ? activeTransition.clipA : activeClip}
-            currentTime={currentTime}
-            filter={clipFilter}
-            transitionStyle={activeTransition
-              ? transitionStyles(activeTransition.transition.type, activeTransition.progress)[0]
-              : {}}
-            muted={muted}
-            videoRef={videoRef}
-            chromaCanvasRef={chromaCanvasRef}
-          />
+          {/* Every paintable layer, in paint order. DOM order is paint order: no
+              layer sets a z-index of its own, so what the compositor draws last
+              is what the browser paints last. The base media layer is special
+              only in that it can carry a transition, the chroma key and the
+              primary video ref. */}
+          {paint.map((item, i) => {
+            if (item.kind === 'text') {
+              const t = item.clip
+              return (
+                <TextOverlay
+                  key={t.id}
+                  clip={t}
+                  currentTime={currentTime}
+                  canvasH={canvasH}
+                  onMouseDown={e => {
+                    e.stopPropagation()
+                    setSelected({ texts: [t.id] })
+                    makeOverlayDragHandler(e.clientX, e.clientY, t.x, t.y,
+                      (nx, ny) => updateTextClip(t.id, { x: nx, y: ny }))
+                  }}
+                />
+              )
+            }
 
-          {/* Video B — incoming clip during a transition */}
-          {activeTransition && (
-            <IncomingMediaLayer
-              activeTransition={activeTransition}
-              currentTime={currentTime}
-              muted={muted}
-              videoRef={videoRefB}
-            />
-          )}
+            if (item.kind === 'sticker') {
+              const s = item.clip
+              return (
+                <StickerOverlay
+                  key={s.id}
+                  clip={s}
+                  currentTime={currentTime}
+                  onMouseDown={e => {
+                    e.stopPropagation()
+                    setSelected({ stickers: [s.id] })
+                    makeOverlayDragHandler(e.clientX, e.clientY, s.x, s.y,
+                      (nx, ny) => updateStickerClip(s.id, { x: nx, y: ny }))
+                  }}
+                />
+              )
+            }
 
-          {/* Overlay video clips (multi-layer/PIP) */}
-          <OverlayVideos
-            clips={overlayClips}
-            videoRefs={overlayVideoRefs}
-            media={project.media}
-            tracks={project.tracks}
-            currentTime={currentTime}
-            muted={muted}
-          />
+            if (i === baseIndex) {
+              return (
+                <Fragment key={`base-${item.clip.id}`}>
+                  <MediaLayer
+                    clip={activeTransition ? activeTransition.clipA : activeClip}
+                    media={activeTransition ? activeTransition.mediaA : activeMedia}
+                    currentTime={currentTime}
+                    filter={clipFilter}
+                    transitionStyle={activeTransition
+                      ? transitionStyles(activeTransition.transition.type, activeTransition.progress)[0]
+                      : undefined}
+                    muted={muted}
+                    videoRef={videoRef}
+                    chromaCanvasRef={chromaCanvasRef}
+                  />
+                  {/* The incoming clip of a transition, painted straight above the
+                      outgoing one and below everything else. */}
+                  {activeTransition && (
+                    <IncomingMediaLayer
+                      key={activeTransition.mediaB?.id}
+                      activeTransition={activeTransition}
+                      currentTime={currentTime}
+                      muted={muted}
+                      videoRef={videoRefB}
+                    />
+                  )}
+                </Fragment>
+              )
+            }
 
-          {/* Text overlays */}
-          {activeTextClips.map(t => (
-            <TextOverlay
-              key={t.id}
-              clip={t}
-              currentTime={currentTime}
-              canvasH={canvasH}
-              onMouseDown={e => {
-                e.stopPropagation()
-                setSelected({ texts: [t.id] })
-                makeOverlayDragHandler(e.clientX, e.clientY, t.x, t.y,
-                  (nx, ny) => updateTextClip(t.id, { x: nx, y: ny }))
-              }}
-            />
-          ))}
-
-          {/* Sticker overlays */}
-          {activeStickerClips.map(s => (
-            <StickerOverlay
-              key={s.id}
-              clip={s}
-              currentTime={currentTime}
-              onMouseDown={e => {
-                e.stopPropagation()
-                setSelected({ stickers: [s.id] })
-                makeOverlayDragHandler(e.clientX, e.clientY, s.x, s.y,
-                  (nx, ny) => updateStickerClip(s.id, { x: nx, y: ny }))
-              }}
-            />
-          ))}
+            return (
+              <MediaLayer
+                key={item.clip.id}
+                clip={item.clip}
+                media={item.media}
+                currentTime={currentTime}
+                filter={layerFilter(item.clip)}
+                muted={muted}
+                videoRef={el => {
+                  if (!el) return
+                  overlayVideos.current.set(item.clip.id, el)
+                  return () => { overlayVideos.current.delete(item.clip.id) }
+                }}
+              />
+            )
+          })}
 
           {/* Caption overlays */}
           {project.captions
