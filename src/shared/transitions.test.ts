@@ -1,100 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { TRANSITION_TYPES, findActiveTransition, transitionStyles } from './transitions'
+import { findActiveTransition } from './transitions'
 import type { Clip, Project } from './project-schema'
 
-// 0.25 keeps every derived percentage and scale an exact binary fraction, so
-// the string assertions below do not depend on float formatting.
-const P = 0.25
-
-describe('transitionStyles', () => {
-  it('returns a style pair for every type it claims to support', () => {
-    for (const type of TRANSITION_TYPES) {
-      const pair = transitionStyles(type, P)
-      expect(Array.isArray(pair)).toBe(true)
-      expect(pair).toHaveLength(2)
-      expect(pair[0]).toBeTypeOf('object')
-      expect(pair[1]).toBeTypeOf('object')
-    }
-  })
-
-  it('crossfades so the two opacities always sum to one', () => {
-    for (const progress of [0, 0.1, 0.25, 0.5, 0.9, 1]) {
-      const [out, incoming] = transitionStyles('fade', progress)
-      expect((out.opacity ?? 0) + (incoming.opacity ?? 0)).toBeCloseTo(1)
-    }
-  })
-
-  it('treats dissolve as the same crossfade as fade', () => {
-    expect(transitionStyles('dissolve', P)).toEqual(transitionStyles('fade', P))
-  })
-
-  it('starts with the outgoing clip whole and ends with the incoming one', () => {
-    const [atStartOut, atStartIn] = transitionStyles('fade', 0)
-    expect(atStartOut.opacity).toBe(1)
-    expect(atStartIn.opacity).toBe(0)
-
-    const [atEndOut, atEndIn] = transitionStyles('fade', 1)
-    expect(atEndOut.opacity).toBe(0)
-    expect(atEndIn.opacity).toBe(1)
-  })
-
-  it('falls back to a crossfade for a type it does not know', () => {
-    // A project saved by a newer build must still render rather than throw.
-    expect(transitionStyles('sparkle', P)).toEqual(transitionStyles('fade', P))
-  })
-
-  it('wipes with complementary clip-path insets', () => {
-    const [out, incoming] = transitionStyles('wipe-left', P)
-    expect(out.clipPath).toBe('inset(0 25% 0 0)')
-    expect(incoming.clipPath).toBe('inset(0 0 0 75%)')
-  })
-
-  it('mirrors each wipe direction against its opposite', () => {
-    // wipe-left and wipe-right must inset opposite edges, or the two clips
-    // would uncover the same side and leave a gap.
-    expect(transitionStyles('wipe-left', P)[0].clipPath).toBe('inset(0 25% 0 0)')
-    expect(transitionStyles('wipe-right', P)[0].clipPath).toBe('inset(0 0 0 25%)')
-    expect(transitionStyles('wipe-up', P)[0].clipPath).toBe('inset(25% 0 0 0)')
-    expect(transitionStyles('wipe-down', P)[0].clipPath).toBe('inset(0 0 25% 0)')
-  })
-
-  it('slides the two clips in opposite directions', () => {
-    const [out, incoming] = transitionStyles('slide-left', P)
-    expect(out.transform).toBe('translateX(-25%)')
-    expect(incoming.transform).toBe('translateX(75%)')
-
-    const [outR, incomingR] = transitionStyles('slide-right', P)
-    expect(outR.transform).toBe('translateX(25%)')
-    expect(incomingR.transform).toBe('translateX(-75%)')
-  })
-
-  it('scales the outgoing clip up while zooming in and down while zooming out', () => {
-    expect(transitionStyles('zoom-in', P)[0]).toEqual({ transform: 'scale(1.125)', opacity: 0.75 })
-    expect(transitionStyles('zoom-out', P)[1]).toEqual({ transform: 'scale(1.75)', opacity: 0.25 })
-  })
-
-  it('blurs both sides, the incoming one more at the start', () => {
-    const [out, incoming] = transitionStyles('blur', P)
-    expect(out.filter).toBe('blur(4px)')
-    expect(incoming.filter).toBe('blur(12px)')
-    // Blur only dims the outgoing clip halfway, unlike a plain crossfade.
-    expect(out.opacity).toBeCloseTo(0.875)
-    expect(incoming.opacity).toBeCloseTo(0.25)
-  })
-
-  it('blanks both clips at the midpoint of a flash', () => {
-    // The one transition where the opacities deliberately do not sum to one:
-    // a flash dips to nothing and comes back.
-    const [out, incoming] = transitionStyles('flash', 0.5)
-    expect(out.opacity).toBe(0)
-    expect(incoming.opacity).toBe(0)
-
-    expect(transitionStyles('flash', P)[0].opacity).toBeCloseTo(0.5)
-    expect(transitionStyles('flash', P)[1].opacity).toBe(0)
-    expect(transitionStyles('flash', 0.75)[0].opacity).toBe(0)
-    expect(transitionStyles('flash', 0.75)[1].opacity).toBeCloseTo(0.5)
-  })
-})
+// The pose maths these transitions resolve to is tested in transition-pose.test.ts;
+// this file covers resolution: which transition runs, over which clips, at what
+// progress.
 
 function clip(over: Partial<Clip> = {}): Clip {
   return {

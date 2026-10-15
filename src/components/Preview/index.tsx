@@ -6,7 +6,8 @@ import { PreviewGuideToggles, PreviewZoomControls } from './Toolbar'
 import {
   CaptionOverlay, EffectOverlays, GuideOverlays, StickerOverlay, TextOverlay,
 } from './Overlays'
-import { findActiveTransition, transitionStyles } from '../../shared/transitions'
+import { findActiveTransition } from '../../shared/transitions'
+import { transitionPose as poseAt } from '../../shared/transition-pose'
 import { activePaintAt, type PaintItem } from '../../shared/paint-order'
 import { clipMediaTimeAt } from '../../shared/scene'
 import { mediaLayerFilter } from '../../shared/layer-filter'
@@ -313,8 +314,8 @@ export function PreviewPanel() {
                     media={activeTransition ? activeTransition.mediaA : activeMedia}
                     currentTime={currentTime}
                     filter={clipFilter}
-                    transitionStyle={activeTransition
-                      ? transitionStyles(activeTransition.transition.type, activeTransition.progress)[0]
+                    transitionPose={activeTransition
+                      ? poseAt(activeTransition.transition.type, activeTransition.progress)[0]
                       : undefined}
                     muted={mutedFor(activeTransition ? activeTransition.clipA : activeClip)}
                     videoRef={videoRef}
@@ -326,6 +327,7 @@ export function PreviewPanel() {
                     <IncomingMediaLayer
                       key={activeTransition.mediaB?.id}
                       activeTransition={activeTransition}
+                      transitionPose={poseAt(activeTransition.transition.type, activeTransition.progress)[1]}
                       currentTime={currentTime}
                       muted={mutedFor(activeTransition.clipB)}
                       videoRef={videoRefB}

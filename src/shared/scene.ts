@@ -1,6 +1,7 @@
 import { interpolate } from './keyframe-interpolate'
 import { mediaLayerFilter } from './layer-filter'
 import { paintOrder } from './paint-order'
+import { resolveTransitions } from './transitions'
 import type { Clip, Keyframe, Project, StickerClip, TextClip } from './project-schema'
 
 // The Phase 2 scene model: a DOM-independent description of what the compositor
@@ -19,6 +20,9 @@ export interface SceneTransform {
 }
 
 interface SceneLayerBase {
+  /** The clip this layer was compiled from. Transitions address their two ends
+   *  by clip, and two clips may share a media file, so mediaId is not enough. */
+  clipId: string
   mediaId: string
   start: number
   end: number
@@ -62,6 +66,18 @@ export interface Scene {
   duration: number
   background: string
   layers: SceneLayer[]
+  /** Blends straddling a cut, resolved to clip ids so the compositor can find
+   *  both layers. Empty when the project has no transitions. */
+  transitions: SceneTransition[]
+}
+
+export interface SceneTransition {
+  clipIdA: string
+  clipIdB: string
+  type: string
+  /** Timeline time where A ends and B begins; the blend straddles it. */
+  boundary: number
+  duration: number
 }
 
 export function compileScene(project: Project): Scene {
@@ -73,6 +89,7 @@ export function compileScene(project: Project): Scene {
 
     const clip = item.clip
     const base: SceneLayerBase = {
+      clipId: clip.id,
       mediaId: item.media.id,
       start,
       end,
@@ -97,6 +114,13 @@ export function compileScene(project: Project): Scene {
     duration: project.duration,
     background: project.backgroundColor,
     layers,
+    transitions: resolveTransitions(project).map(r => ({
+      clipIdA: r.clipA.id,
+      clipIdB: r.clipB.id,
+      type: r.transition.type,
+      boundary: r.boundary,
+      duration: r.transition.duration,
+    })),
   }
 }
 

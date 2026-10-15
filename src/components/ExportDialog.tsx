@@ -66,7 +66,7 @@ export function ExportDialog() {
       if (engine === 'compositor') {
         const outcome = await runComposited(api)
         if (outcome === 'fallback') {
-          setWarning('The compositor could not start, so this export used the filtergraph engine. Text and stickers are included; per-clip filters may differ slightly from the preview.')
+          setWarning('The compositor could not start, so this export used the filtergraph engine. Text, stickers and grading carry over; transitions, clip effects and preset filters do not render in this engine, so the result will differ from the preview.')
           await runFiltergraph(api)
         }
       } else {

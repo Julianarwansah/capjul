@@ -1,6 +1,7 @@
 import type { Ref } from 'react'
 import { clipTransformAt, poseTransformCss } from '../../shared/scene'
-import { transitionStyles, type ActiveTransition, type TransitionStyle } from '../../shared/transitions'
+import { poseToCss, type TransitionClipPose } from '../../shared/transition-pose'
+import type { ActiveTransition } from '../../shared/transitions'
 import type { Clip, MediaFile } from '../../types'
 
 // The media layers. Every clip paints through the one component below, whether it
@@ -15,9 +16,8 @@ export interface MediaLayerProps {
   /** Combined CSS filter string for this clip. */
   filter: string
   muted: boolean
-  /** The outgoing half of the active transition's style pair. Omit for a layer
-   *  that is not carrying a transition. */
-  transitionStyle?: TransitionStyle
+  /** This layer's half of a running transition. Omit when none is running. */
+  transitionPose?: TransitionClipPose
   videoRef?: Ref<HTMLVideoElement>
   chromaCanvasRef?: Ref<HTMLCanvasElement>
 }
@@ -34,7 +34,7 @@ export interface MediaLayerProps {
  * Renders nothing when no media resolves.
  */
 export function MediaLayer({
-  clip, media, currentTime, filter, muted, transitionStyle = {}, videoRef, chromaCanvasRef,
+  clip, media, currentTime, filter, muted, transitionPose, videoRef, chromaCanvasRef,
 }: MediaLayerProps) {
   if (!media) return null
 
@@ -43,13 +43,13 @@ export function MediaLayer({
   // resolve them the same way or an image the user moves, scales, rotates or
   // keyframes exports differently from what they see (tech debt D17).
   const tf = clipTransformAt(clip, currentTime)
-  const combinedStyle: React.CSSProperties = {
-    objectFit: 'contain',
-    filter,
-    opacity: tf.opacity,
-    transform: poseTransformCss(tf),
-    ...transitionStyle,
-  }
+  // A transition pose composes with the clip's own pose and grading instead of
+  // replacing them. Replacing was the old behaviour: a clip lost its position,
+  // rotation, scale and filter for the length of its own transition.
+  const styled = transitionPose
+    ? poseToCss(transitionPose, tf, filter)
+    : { opacity: tf.opacity, transform: poseTransformCss(tf), filter }
+  const combinedStyle: React.CSSProperties = { objectFit: 'contain', ...styled }
 
   if (media.type === 'video') {
     // With chroma key on, the video element is drawn fully transparent and the
@@ -72,9 +72,9 @@ export function MediaLayer({
             ref={chromaCanvasRef}
             className="absolute inset-0 w-full h-full"
             style={{
-              filter: filter || undefined,
-              opacity: tf.opacity,
-              transform: combinedStyle.transform,
+              filter: styled.filter || undefined,
+              opacity: styled.opacity,
+              transform: styled.transform,
               objectFit: 'contain',
             }}
           />
@@ -99,27 +99,27 @@ export function MediaLayer({
 
 export interface IncomingMediaLayerProps {
   activeTransition: ActiveTransition
+  /** The arriving clip's half of the blend. */
+  transitionPose: TransitionClipPose
   currentTime: number
   muted: boolean
   videoRef: Ref<HTMLVideoElement>
 }
 
 /** The clip arriving during a transition, painted above the outgoing one.
- *  Carries no filter: `clipFilter` belongs to the clip at the playhead, and
+ *  Carries no filter: the layer filter belongs to the clip at the playhead, and
  *  applying it here would grade the incoming clip with the outgoing one's settings. */
 export function IncomingMediaLayer({
-  activeTransition, currentTime, muted, videoRef,
+  activeTransition, transitionPose, currentTime, muted, videoRef,
 }: IncomingMediaLayerProps) {
-  const { transition, clipB, mediaB, progress } = activeTransition
-  const [, styleB] = transitionStyles(transition.type, progress)
   return (
     <MediaLayer
-      clip={clipB}
-      media={mediaB}
+      clip={activeTransition.clipB}
+      media={activeTransition.mediaB}
       currentTime={currentTime}
       filter=""
       muted={muted}
-      transitionStyle={styleB}
+      transitionPose={transitionPose}
       videoRef={videoRef}
     />
   )
