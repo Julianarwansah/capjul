@@ -75,8 +75,16 @@ export function AudioInspector({ clip }: { clip: AudioClip }) {
           onChange={v => updateAudioClip(clip.id, { fadeout: v })} />
       </Section>
       <Section title="Pitch" defaultOpen={false}>
+        {/* Disabled rather than left live: pitch is stored and read by nothing.
+            useAudioClips never sets it and render-plan emits no asetrate or
+            equivalent, so the slider moved a number and changed no sound in
+            either the preview or the export. Same treatment as the six grading
+            fields (tech debt D7) - a control that cannot do what it says is
+            worse than one that admits it cannot. */}
         <Slider label="Pitch Shift" value={clip.pitch} min={-12} max={12} step={1}
-          onChange={v => updateAudioClip(clip.id, { pitch: v })} />
+          onChange={v => updateAudioClip(clip.id, { pitch: v })}
+          disabled
+          hint="Not applied yet — neither the preview nor the export shifts pitch" />
       </Section>
     </>
   )
