@@ -66,6 +66,8 @@ export const SHORTCUTS = [
   { id: 'fwd-1s', group: 'Playback', keys: 'L', scope: 'global', description: 'Maju 1 detik', match: e => e.code === 'KeyL' && !e.shiftKey },
   { id: 'fwd-5s', group: 'Playback', keys: '⇧L', scope: 'global', description: 'Maju 5 detik', match: e => e.code === 'KeyL' && e.shiftKey },
   { id: 'home', group: 'Playback', keys: 'Home', scope: 'global', description: 'Ke awal timeline', match: plain('Home') },
+  { id: 'loop-in', group: 'Playback', keys: 'I', scope: 'global', description: 'Set loop in di playhead', match: plain('KeyI') },
+  { id: 'loop-out', group: 'Playback', keys: 'O', scope: 'global', description: 'Set loop out di playhead', match: plain('KeyO') },
   { id: 'end', group: 'Playback', keys: 'End', scope: 'global', description: 'Ke akhir timeline', match: plain('End') },
 
   // ⌘M minimises the window on macOS, so the marker binding guards on mod where

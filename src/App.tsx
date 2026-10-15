@@ -90,6 +90,7 @@ export default function App() {
     currentTime, setCurrentTime, project,
     splitAtPlayhead, duplicateSelection, deleteSelection,
     toggleMarker, setSelected, clearSelection,
+    setLoopIn, setLoopOut,
   } = useEditorStore()
 
   // Keyboard shortcuts. This is the only place global keys are dispatched; the
@@ -155,6 +156,8 @@ export default function App() {
       case 'fwd-1s': e.preventDefault(); seekBy(second); break
       case 'fwd-5s': e.preventDefault(); seekBy(fiveSeconds); break
       case 'home': setCurrentTime(0); break
+      case 'loop-in': e.preventDefault(); setLoopIn(currentTime); break
+      case 'loop-out': e.preventDefault(); setLoopOut(currentTime); break
       case 'end': setCurrentTime(project.duration); break
       case 'zoom-in':
         e.preventDefault()
@@ -193,7 +196,7 @@ export default function App() {
     isPlaying, currentTime, project,
     setIsPlaying, undo, redo, setCurrentTime,
     splitAtPlayhead, duplicateSelection, deleteSelection, toggleMarker,
-    setSelected, clearSelection,
+    setSelected, clearSelection, setLoopIn, setLoopOut,
   ])
 
   useEffect(() => {

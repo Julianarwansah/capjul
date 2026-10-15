@@ -36,6 +36,11 @@ export interface EditorState {
   showShortcuts: boolean
   /** Session preference, not project data: whether drags and trims snap. */
   snapEnabled: boolean
+  /** A/B loop. Session state like snapEnabled: where to play from is not a
+   *  property of the film, and markers already persist the points that matter. */
+  loopIn: number | null
+  loopOut: number | null
+  loopEnabled: boolean
   isExporting: boolean
   exportProgress: number
   // History
@@ -129,6 +134,10 @@ export interface EditorState {
   setShowProjectSettings: (v: boolean) => void
   setShowShortcuts: (v: boolean) => void
   setSnapEnabled: (v: boolean) => void
+  setLoopIn: (t: number | null) => void
+  setLoopOut: (t: number | null) => void
+  setLoopEnabled: (v: boolean) => void
+  clearLoop: () => void
   setIsExporting: (v: boolean) => void
   setExportProgress: (v: number) => void
 
@@ -163,6 +172,9 @@ export const useEditorStore = create<EditorState>()(
     showProjectSettings: false,
     showShortcuts: false,
     snapEnabled: true,
+    loopIn: null,
+    loopOut: null,
+    loopEnabled: false,
     isExporting: false,
     exportProgress: 0,
     history: [initialProject],
@@ -508,6 +520,10 @@ export const useEditorStore = create<EditorState>()(
     setShowProjectSettings: (v) => set({ showProjectSettings: v }),
     setShowShortcuts: (v) => set({ showShortcuts: v }),
     setSnapEnabled: (v) => set({ snapEnabled: v }),
+    setLoopIn: (t) => set({ loopIn: t }),
+    setLoopOut: (t) => set({ loopOut: t }),
+    setLoopEnabled: (v) => set({ loopEnabled: v }),
+    clearLoop: () => set({ loopIn: null, loopOut: null, loopEnabled: false }),
     setIsExporting: (v) => set({ isExporting: v }),
     setExportProgress: (v) => set({ exportProgress: v }),
 

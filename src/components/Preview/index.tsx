@@ -10,6 +10,7 @@ import { findActiveTransition } from '../../shared/transitions'
 import { transitionPose as poseAt } from '../../shared/transition-pose'
 import { activePaintAt, type PaintItem } from '../../shared/paint-order'
 import { clipMediaTimeAt } from '../../shared/scene'
+import { nextPlaybackTime, type LoopWindow } from '../../shared/playback-loop'
 import { mediaLayerFilter } from '../../shared/layer-filter'
 import { trackMuted } from '../../shared/track-audio'
 import { IncomingMediaLayer, MediaLayer } from './MediaLayers'
@@ -31,6 +32,7 @@ export function PreviewPanel() {
     project, currentTime, isPlaying, playbackSpeed,
     setCurrentTime, setIsPlaying, setPlaybackSpeed,
     updateTextClip, updateStickerClip, setSelected,
+    loopIn, loopOut, loopEnabled, setLoopIn, setLoopOut, setLoopEnabled, clearLoop,
   } = useEditorStore()
 
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -43,6 +45,10 @@ export function PreviewPanel() {
   // Use a ref so the RAF callback always reads the latest currentTime
   const currentTimeRef = useRef(currentTime)
   const durationRef = useRef(project.duration)
+  const loopRef = useRef<LoopWindow>({ in: loopIn, out: loopOut, enabled: loopEnabled })
+  useEffect(() => {
+    loopRef.current = { in: loopIn, out: loopOut, enabled: loopEnabled }
+  }, [loopIn, loopOut, loopEnabled])
   const [volume, setVolume] = useState(1)
   const [muted, setMuted] = useState(false)
   const [previewScale, setPreviewScale] = useState(1)
@@ -181,9 +187,11 @@ export function PreviewPanel() {
     function tick(now: number) {
       const dt = (now - last) / 1000 * playbackSpeed
       last = now
-      const next = Math.min(currentTimeRef.current + dt, durationRef.current)
-      setCurrentTime(next)
-      if (next >= durationRef.current) { setIsPlaying(false); return }
+      // The wrap rule lives in shared/playback-loop.ts so it can be tested
+      // without a requestAnimationFrame loop running.
+      const step = nextPlaybackTime(currentTimeRef.current, dt, durationRef.current, loopRef.current)
+      setCurrentTime(step.time)
+      if (step.ended) { setIsPlaying(false); return }
       rafRef.current = requestAnimationFrame(tick)
     }
     rafRef.current = requestAnimationFrame(tick)
@@ -405,6 +413,13 @@ export function PreviewPanel() {
         onToggleMuted={() => setMuted(m => !m)}
         onVolume={v => { setVolume(v); if (videoRef.current) videoRef.current.volume = v }}
         onToggleFullscreen={toggleFullscreen}
+        loopIn={loopIn}
+        loopOut={loopOut}
+        loopEnabled={loopEnabled}
+        onSetLoopIn={() => setLoopIn(currentTime)}
+        onSetLoopOut={() => setLoopOut(currentTime)}
+        onToggleLoop={() => setLoopEnabled(!loopEnabled)}
+        onClearLoop={clearLoop}
       />
     </div>
   )

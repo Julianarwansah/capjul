@@ -25,6 +25,7 @@ export function Timeline() {
     splitAtPlayhead, deleteSelection,
     toggleMarker, removeMarker, clearMarkers,
     snapEnabled, setSnapEnabled,
+    loopIn, loopOut, loopEnabled,
   } = useEditorStore()
   const hasSelection = useEditorStore(selectHasSelection)
 
@@ -150,6 +151,21 @@ export function Timeline() {
                 not contain focusable descendants, and a marker's delete button
                 is one. */}
             <div className="sticky top-0 relative" style={{ height: RULER_HEIGHT, zIndex: 10 }}>
+              {/* The loop region, under the ruler's ticks and flags so both stay
+                  readable over it. Pointer-events none: the ruler owns clicks. */}
+              {loopEnabled && loopIn !== null && loopOut !== null && loopOut > loopIn && (
+                <div
+                  className="absolute top-0 bottom-0 pointer-events-none"
+                  aria-hidden="true"
+                  style={{
+                    left: loopIn * pxPerSec,
+                    width: (loopOut - loopIn) * pxPerSec,
+                    background: 'rgba(255,71,87,0.14)',
+                    borderLeft: '1px solid var(--color-primary)',
+                    borderRight: '1px solid var(--color-primary)',
+                  }}
+                />
+              )}
               <Ruler
                 duration={timelineDuration}
                 pxPerSec={pxPerSec}

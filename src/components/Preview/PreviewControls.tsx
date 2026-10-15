@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
-  Maximize2, Minimize2, ChevronLeft, ChevronRight,
+  Maximize2, Minimize2, ChevronLeft, ChevronRight, Repeat, X,
 } from 'lucide-react'
 
 const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4]
@@ -15,14 +15,24 @@ function formatTime(s: number) {
   return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`
 }
 
-function CtrlBtn({ icon, onClick, title }: { icon: React.ReactNode; onClick: () => void; title: string }) {
+function CtrlBtn({ icon, onClick, title, active }: {
+  icon: React.ReactNode
+  onClick: () => void
+  title: string
+  active?: boolean
+}) {
   return (
     <button
       title={title}
       aria-label={title}
+      aria-pressed={active === undefined ? undefined : active}
       onClick={onClick}
       className="w-8 h-8 rounded flex items-center justify-center"
-      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)' }}
+      style={{
+        background: active ? 'rgba(255,71,87,0.15)' : 'transparent',
+        border: 'none', cursor: 'pointer',
+        color: active ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+      }}
       onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--color-bg-hover)'}
       onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
     >
@@ -48,6 +58,13 @@ export interface PreviewControlsProps {
   onToggleMuted: () => void
   onVolume: (v: number) => void
   onToggleFullscreen: () => void
+  loopIn: number | null
+  loopOut: number | null
+  loopEnabled: boolean
+  onSetLoopIn: () => void
+  onSetLoopOut: () => void
+  onToggleLoop: () => void
+  onClearLoop: () => void
 }
 
 export function PreviewControls(p: PreviewControlsProps) {
@@ -181,6 +198,38 @@ export function PreviewControls(p: PreviewControlsProps) {
           </button>
           <CtrlBtn icon={<ChevronRight size={16} />} onClick={() => p.onSetCurrentTime(Math.min(p.duration, p.currentTime + 1 / p.fps))} title="Next frame" />
           <CtrlBtn icon={<SkipForward size={16} />} onClick={() => p.onSetCurrentTime(p.duration)} title="Go to end" />
+        </div>
+
+        {/* A/B loop */}
+        <div className="flex items-center gap-0.5" style={{ borderLeft: '1px solid var(--color-border-subtle)', paddingLeft: 8 }}>
+          <CtrlBtn
+            icon={<span className="text-xs" style={{ fontWeight: 700 }}>I</span>}
+            onClick={p.onSetLoopIn}
+            title="Set loop in at playhead (I)"
+          />
+          <CtrlBtn
+            icon={<span className="text-xs" style={{ fontWeight: 700 }}>O</span>}
+            onClick={p.onSetLoopOut}
+            title="Set loop out at playhead (O)"
+          />
+          <CtrlBtn
+            icon={<Repeat size={15} />}
+            onClick={p.onToggleLoop}
+            title={p.loopEnabled ? 'Matikan loop' : 'Nyalakan loop antara in dan out'}
+            active={p.loopEnabled}
+          />
+          {(p.loopIn !== null || p.loopOut !== null) && (
+            <CtrlBtn
+              icon={<X size={14} />}
+              onClick={p.onClearLoop}
+              title="Hapus loop"
+            />
+          )}
+          <span className="text-xs" style={{ color: 'var(--color-text-muted)', minWidth: 74 }}>
+            {p.loopIn !== null && p.loopOut !== null
+              ? `${formatTime(p.loopIn)}–${formatTime(p.loopOut)}`
+              : 'no loop'}
+          </span>
         </div>
 
         {/* Right controls */}
