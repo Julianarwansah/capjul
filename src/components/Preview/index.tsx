@@ -10,6 +10,7 @@ import { findActiveTransition, transitionStyles } from '../../shared/transitions
 import { activePaintAt, type PaintItem } from '../../shared/paint-order'
 import { clipMediaTimeAt } from '../../shared/scene'
 import { mediaLayerFilter } from '../../shared/layer-filter'
+import { trackMuted } from '../../shared/track-audio'
 import { IncomingMediaLayer, MediaLayer } from './MediaLayers'
 import { useAudioClips } from './useAudioClips'
 import { useChromaKey } from './useChromaKey'
@@ -231,6 +232,12 @@ export function PreviewPanel() {
   // was shared; the incoming clip deliberately carries none.
   const clipFilter = layerFilter(activeClip)
 
+  // Master mute, or the clip's own track mute. A muted track is silent in the
+  // preview exactly as it now is in both export engines (tech debt D24); before
+  // this, only audio-track clips were silenced here and nothing was silenced on
+  // export.
+  const mutedFor = (clip: Clip | null) => muted || (clip ? trackMuted(project, clip.trackId) : false)
+
   return (
     <div ref={rootRef} className="flex flex-col h-full" style={{ background: 'var(--color-bg-base)' }}>
       {/* Preview area */}
@@ -309,7 +316,7 @@ export function PreviewPanel() {
                     transitionStyle={activeTransition
                       ? transitionStyles(activeTransition.transition.type, activeTransition.progress)[0]
                       : undefined}
-                    muted={muted}
+                    muted={mutedFor(activeTransition ? activeTransition.clipA : activeClip)}
                     videoRef={videoRef}
                     chromaCanvasRef={chromaCanvasRef}
                   />
@@ -320,7 +327,7 @@ export function PreviewPanel() {
                       key={activeTransition.mediaB?.id}
                       activeTransition={activeTransition}
                       currentTime={currentTime}
-                      muted={muted}
+                      muted={mutedFor(activeTransition.clipB)}
                       videoRef={videoRefB}
                     />
                   )}
@@ -335,7 +342,7 @@ export function PreviewPanel() {
                 media={item.media}
                 currentTime={currentTime}
                 filter={layerFilter(item.clip)}
-                muted={muted}
+                muted={mutedFor(item.clip)}
                 videoRef={el => {
                   if (!el) return
                   overlayVideos.current.set(item.clip.id, el)

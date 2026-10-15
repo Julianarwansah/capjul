@@ -2,6 +2,7 @@ import type { Keyframe, MediaFile, Project } from './project-schema'
 import { audioSpan } from './audio-fade'
 import { buildFfmpegColorChain, colorAdjustFactors } from './color-adjust'
 import { easeFfmpeg } from './keyframe-easing'
+import { trackMuted } from './track-audio'
 
 // The RenderPlan is the compiled form of a Project: everything the encoder
 // needs, nothing it does not. It is plain JSON so it can be logged, snapshotted
@@ -120,6 +121,9 @@ function compileAudio(project: Project, inputFor: InputAllocator): RenderAudio[]
     const media = project.media.find(m => m.id === clip.mediaId)
     if (!media || media.type !== 'video') continue
     if (clip.muted || clip.volume <= 0 || clip.duration <= 0) continue
+    // A muted track contributes no audio entry at all, so it occupies no input in
+    // the filter graph. The preview silences the same clip's video element.
+    if (trackMuted(project, clip.trackId)) continue
     audio.push({
       inputId: inputFor(media),
       start: clip.startTime,
@@ -135,7 +139,7 @@ function compileAudio(project: Project, inputFor: InputAllocator): RenderAudio[]
   for (const clip of project.audioClips) {
     const media = project.media.find(m => m.id === clip.mediaId)
     if (!media || clip.duration <= 0) continue
-    const volume = clip.muted ? 0 : clip.volume
+    const volume = clip.muted || trackMuted(project, clip.trackId) ? 0 : clip.volume
     if (volume <= 0) continue
     audio.push({
       inputId: inputFor(media),

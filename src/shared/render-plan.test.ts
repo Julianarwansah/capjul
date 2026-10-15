@@ -312,3 +312,48 @@ describe('audioGraphFilters fades', () => {
     expect(fadeOutAt).toBeLessThan(delayAt)
   })
 })
+
+describe('compileAudio track mute', () => {
+  // A muted track is silent in the export, matching the preview. Hiding was
+  // never an option: there is no track visibility control, and paintOrder
+  // decides separately what an orphaned or muted track paints (D24).
+  const mutedMain = {
+    tracks: [
+      { id: 't0', type: 'video' as const, label: 'Main', muted: true, locked: false, height: 64 },
+      { id: 't1', type: 'video' as const, label: 'Overlay', muted: false, locked: false, height: 64 },
+    ],
+  }
+
+  it('drops a video clip whose track is muted', () => {
+    const plan = compileProject(project({ ...mutedMain, clips: [clip()] }), output)
+    expect(plan.audio).toEqual([])
+  })
+
+  it('keeps a video clip on an unmuted track', () => {
+    expect(compileProject(project({ clips: [clip()] }), output).audio).toHaveLength(1)
+  })
+
+  it('keeps other tracks audible while one is muted', () => {
+    const plan = compileProject(project({
+      ...mutedMain,
+      clips: [clip(), clip({ id: 'c2', trackId: 't1', startTime: 3 })],
+    }), output)
+    expect(plan.audio).toHaveLength(1)
+    expect(plan.audio[0].start).toBe(3)
+  })
+
+  it('drops an audio clip whose track is muted', () => {
+    const plan = compileProject(project({
+      ...mutedMain,
+      audioClips: [audioClip()],
+    }), output)
+    expect(plan.audio).toEqual([])
+  })
+
+  it('treats a clip on a track that no longer exists as audible', () => {
+    // Removing a track is not muting it; paintOrder already gives orphaned clips
+    // overlay stacking, and silence would be a second, unasked-for consequence.
+    const plan = compileProject(project({ clips: [clip({ trackId: 'gone' })] }), output)
+    expect(plan.audio).toHaveLength(1)
+  })
+})
