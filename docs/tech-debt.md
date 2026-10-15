@@ -1104,3 +1104,21 @@ Kept here for traceability; each has a commit.
   CSS as a comment: in this stylesheet, an unlayered rule silently outranks a
   utility class, so any `position` in index.css on an element that also carries a
   Tailwind position utility is a bug waiting to be hidden by the common case.
+- A/B loop playback (new feature). `I` and `O` set the window at the playhead, the
+  transport gains in/out/loop/clear with a readout, and the ruler paints the
+  region while the loop is armed. The wrap rule lives in
+  `shared/playback-loop.ts` with three decisions named in its comments: the wrap
+  carries the overshoot into the next pass, because dropping the remainder of the
+  crossing frame would make every loop run fractionally slow across the hundreds
+  of passes a loop gets; a playhead parked outside an armed window jumps to the in
+  point on the next tick, because a loop the user just armed should take effect
+  immediately; and an invalid window falls back to plain playback, because arming
+  a bad loop must never wedge the transport. Loop state is session state like
+  `snapEnabled`, not project data - where to play from is not a property of the
+  film, and markers already persist the points that are.
+  Verified by watching real playback: sixteen samples of the playhead climb
+  2.61 → 2.93 and wrap to 2.06, staying inside the window and still playing,
+  while the same project unlooped still stops at the duration. The band geometry
+  check first failed because it hardcoded 100 px/s against a default zoom of 80 -
+  the third probe this session whose first failure was the probe's arithmetic
+  rather than the app, and the third time the fix was to read the live value.
