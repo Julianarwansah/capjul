@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X, Download, CheckCircle } from 'lucide-react'
 import { useEditorStore } from '../store/editorStore'
@@ -6,6 +6,9 @@ import { compileProject } from '../shared/render-plan'
 import { rasterizeStickerClip, rasterizeTextClip } from '../shared/text-rasterizer'
 import { captionToTextClip, createCaptionMeasurer } from '../shared/caption-layout'
 import { compileScene } from '../shared/scene'
+import { windowProject } from '../shared/project-window'
+import { validLoop } from '../shared/playback-loop'
+import type { Project } from '../types'
 import { prepareScene, type PreparedScene } from '../shared/compositor'
 import { pumpPrepared } from '../shared/export-pump'
 
@@ -26,7 +29,7 @@ type ExportFormat = (typeof FORMATS)[number]
 const AUDIO_BITRATES = ['128k', '192k', '256k', '320k']
 
 export function ExportDialog() {
-  const { project, setShowExportDialog, isExporting, exportProgress, setIsExporting, setExportProgress } = useEditorStore()
+  const { project, setShowExportDialog, isExporting, exportProgress, setIsExporting, setExportProgress, loopIn, loopOut, loopEnabled } = useEditorStore()
   const [resolution, setResolution] = useState('1080p')
   const [fps, setFps] = useState(30)
   const [format, setFormat] = useState<ExportFormat>('mp4')
@@ -37,6 +40,23 @@ export function ExportDialog() {
   const [warning, setWarning] = useState<string | null>(null)
   const [engine, setEngine] = useState<'compositor' | 'filtergraph'>('compositor')
   const [exportSrt, setExportSrt] = useState(project.captions.length > 0)
+  const [exportRange, setExportRange] = useState(false)
+
+  // The armed A/B loop, if any: the only range the export can be limited to, so
+  // the feature composes with the loop instead of adding a second pair of points.
+  // Memoized so the derived export source below can depend on it by identity.
+  const loop = useMemo(
+    () => validLoop({ in: loopIn, out: loopOut, enabled: loopEnabled }),
+    [loopIn, loopOut, loopEnabled],
+  )
+
+  // What the export will compile. Windowing is a pure project transform, so both
+  // engines, the overlay rasters and the SRT sidecar all see the same re-based
+  // project and cannot disagree about what "the range" contains.
+  const src = useMemo(
+    () => (exportRange && loop ? windowProject(project, loop.in, loop.out) : project),
+    [project, exportRange, loop],
+  )
 
   const res = RESOLUTIONS.find(r => r.label === resolution)!
 
@@ -51,7 +71,7 @@ export function ExportDialog() {
       return
     }
 
-    if (project.clips.length === 0 && project.audioClips.length === 0) {
+    if (src.clips.length === 0 && src.audioClips.length === 0) {
       setError('Nothing to export. Add a clip to the timeline first.')
       return
     }
@@ -66,13 +86,13 @@ export function ExportDialog() {
 
     try {
       if (engine === 'compositor') {
-        const outcome = await runComposited(api)
+        const outcome = await runComposited(api, src)
         if (outcome === 'fallback') {
           setWarning('The compositor could not start, so this export used the filtergraph engine. Text, stickers and grading carry over; transitions, clip effects and preset filters do not render in this engine, so the result will differ from the preview.')
-          await runFiltergraph(api)
+          await runFiltergraph(api, src)
         }
       } else {
-        await runFiltergraph(api)
+        await runFiltergraph(api, src)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Export failed.')
@@ -85,15 +105,15 @@ export function ExportDialog() {
   // The compositor draws every frame exactly as the preview does, so this is
   // the parity-exact engine. If it cannot even prepare (undecodable media, no
   // canvas), fall back rather than failing the export outright.
-  async function runComposited(api: Api): Promise<'done' | 'fallback'> {
-    const scene = compileScene(project)
+  async function runComposited(api: Api, src: Project): Promise<'done' | 'fallback'> {
+    const scene = compileScene(src)
     scene.width = res.width
     scene.height = res.height
     scene.fps = fps
 
     let prepared: PreparedScene
     try {
-      prepared = await prepareScene(scene, project.media, p => `media://${p}`)
+      prepared = await prepareScene(scene, src.media, p => `media://${p}`)
     } catch {
       return 'fallback'
     }
@@ -129,13 +149,13 @@ export function ExportDialog() {
       if (exported.error.code !== 'E_CANCELLED') setError(exported.error.message)
     } else {
       setExportProgress(100)
-      if (exportSrt && project.captions.length > 0) downloadSrt()
+      if (exportSrt && src.captions.length > 0) downloadSrt(src)
       setDone(true)
     }
     return 'done'
   }
 
-  function downloadSrt() {
+  function downloadSrt(src: Project) {
     function pad2(n: number) { return String(Math.floor(n)).padStart(2, '0') }
     function toTimecode(s: number) {
       const h = Math.floor(s / 3600)
@@ -144,7 +164,7 @@ export function ExportDialog() {
       const ms = Math.round((s % 1) * 1000)
       return `${pad2(h)}:${pad2(m)}:${pad2(sec)},${String(ms).padStart(3, '0')}`
     }
-    const sorted = [...project.captions].sort((a, b) => a.startTime - b.startTime)
+    const sorted = [...src.captions].sort((a, b) => a.startTime - b.startTime)
     const srt = sorted.map((c, i) =>
       `${i + 1}\n${toTimecode(c.startTime)} --> ${toTimecode(c.endTime)}\n${c.text}`
     ).join('\n\n')
@@ -157,8 +177,8 @@ export function ExportDialog() {
     URL.revokeObjectURL(url)
   }
 
-  async function runFiltergraph(api: Api) {
-    const plan = compileProject(project, { format, videoBitrate: res.bitrate, audioBitrate, normalizeLoudness })
+  async function runFiltergraph(api: Api, src: Project) {
+    const plan = compileProject(src, { format, videoBitrate: res.bitrate, audioBitrate, normalizeLoudness })
     // The dialog's resolution/fps choices override the project's own.
     plan.width = res.width
     plan.height = res.height
@@ -167,8 +187,8 @@ export function ExportDialog() {
     // Text and stickers are rasterized here, in the renderer: system FFmpeg
     // has no drawtext, and sticker vectors draw natively on canvas whereas
     // emoji fonts do not (design doc F4).
-    const textClips = project.textClips.filter(t => t.duration > 0)
-    const stickerClips = project.stickerClips.filter(s => s.duration > 0)
+    const textClips = src.textClips.filter(t => t.duration > 0)
+    const stickerClips = src.stickerClips.filter(s => s.duration > 0)
     const overlayImages: string[] = textClips.map(t => rasterizeTextClip(t, plan.width, plan.height))
     plan.overlays = textClips.map((t, i) => ({
       png: '',
@@ -190,7 +210,7 @@ export function ExportDialog() {
     // Captions ride the same overlay-PNG path as text, above it: this engine has
     // no drawtext, and the raster already carries the shared wrap and anchor.
     const measurer = createCaptionMeasurer()
-    for (const c of project.captions) {
+    for (const c of src.captions) {
       if (c.endTime <= c.startTime) continue
       const asClip = captionToTextClip(c, plan.width, plan.height, measurer)
       plan.overlays.push({
@@ -208,7 +228,7 @@ export function ExportDialog() {
       if (exported.error.code !== 'E_CANCELLED') setError(exported.error.message)
     } else {
       setExportProgress(100)
-      if (exportSrt && project.captions.length > 0) downloadSrt()
+      if (exportSrt && src.captions.length > 0) downloadSrt(src)
       setDone(true)
     }
   }
@@ -380,8 +400,26 @@ export function ExportDialog() {
                 </span>
               </label>
 
+              {/* Range export, offered only when a loop is armed */}
+              {loop && (
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={exportRange}
+                    onChange={e => setExportRange(e.target.checked)}
+                    style={{ marginTop: 2 }}
+                  />
+                  <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                    Export hanya range loop ({loop.in.toFixed(2)}s – {loop.out.toFixed(2)}s)
+                    <span className="block" style={{ color: 'var(--color-text-muted)', fontSize: 10 }}>
+                      Proyek dipotong ke range ini: clip yang memotong tepi dipangkas, bukan dibuang.
+                    </span>
+                  </span>
+                </label>
+              )}
+
               {/* SRT export option */}
-              {project.captions.length > 0 && (
+              {src.captions.length > 0 && (
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
@@ -389,7 +427,7 @@ export function ExportDialog() {
                     onChange={e => setExportSrt(e.target.checked)}
                   />
                   <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-                    Export subtitle file (.srt) — {project.captions.length} caption(s)
+                    Export subtitle file (.srt) — {src.captions.length} caption(s)
                   </span>
                 </label>
               )}

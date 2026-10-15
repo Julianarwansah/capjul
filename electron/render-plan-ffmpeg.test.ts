@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildRenderArgs, compileProject } from '../src/shared/render-plan'
+import { windowProject } from '../src/shared/project-window'
 import type { Project } from '../src/shared/project-schema'
 
 // A filtergraph is text, and text can be wrong in ways no string assertion sees:
@@ -77,6 +78,19 @@ describe.runIf(haveFfmpeg)('the emitted render args run in real ffmpeg', () => {
 
   it('encodes the same graph with loudnorm chained', () => {
     const r = encode(true)
+    expect(r.status, r.stderr?.toString()).toBe(0)
+    expect(statSync(output()).size).toBeGreaterThan(0)
+  }, 30000)
+
+  it('encodes a windowed plan, so a range export is a valid graph too', () => {
+    // The window starts and ends mid-clip, so the plan carries trimmed media
+    // windows and re-based starts - the case where a hand-built graph would most
+    // likely reference a timestamp past the end of its trim.
+    const plan = compileProject(windowProject(project(), 0.3, 0.8), {
+      format: 'mp4', videoBitrate: '1M', audioBitrate: '128k', normalizeLoudness: false,
+    })
+    expect(plan.duration).toBeCloseTo(0.5, 9)
+    const r = spawnSync('ffmpeg', buildRenderArgs(plan, output()), { stdio: 'pipe' })
     expect(r.status, r.stderr?.toString()).toBe(0)
     expect(statSync(output()).size).toBeGreaterThan(0)
   }, 30000)
