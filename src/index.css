@@ -221,7 +221,12 @@ textarea:focus {
 /* ===================== TIMELINE CLIPS ===================== */
 .timeline-clip {
   cursor: grab;
-  position: relative;
+  /* No position here on purpose: the element carries Tailwind's `absolute`,
+     and author CSS outside a layer beats layered utilities, so a
+     `position: relative` here once overrode it - left/top then acted as flow
+     offsets and a second clip on the same track stacked below the first and
+     overflowed the row. One clip per track looked correct by accident. The
+     ::before shine still gets its positioned ancestor from `absolute`. */
 }
 .timeline-clip:active {
   cursor: grabbing;
