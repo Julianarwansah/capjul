@@ -73,28 +73,35 @@ Owner: next engineering slot; **Julian** if the answer is to cut transitions fro
 the UI instead. Cutting is roughly an hour and would close the same broken
 promise from the other direction.
 
-### D23 — Clip effects and chroma key are rendered by the preview only
-`Preview/index.tsx` builds each media layer's CSS filter from three parts:
-`clip.filter` (the preset), `buildCssFilter(colorAdjustFactors(clip))` (the six
-numeric grading fields) and `buildEffectsCssFilter(clip.effects)`. `compileScene`
-builds the same string from only the first two. So the twelve entries in
-`shared/effects.ts` — blur, glow, sharpen, chromatic, noir, warm, cool, vivid,
-matte, plus the overlay-driven vignette, grain and letterbox — are visible in the
-preview and absent from the export. `EffectOverlays` paints the three overlay
-effects as DOM, which has no compositor counterpart at all.
+### D23 — Three overlay effects and chroma key are still preview-only
+**Narrowed from its original scope.** The nine CSS-filter effects (blur, glow,
+sharpen, chromatic, noir, warm, cool, vivid, matte) now export through the
+compositor: `shared/layer-filter.ts` composes preset, grading and effects into
+one string that both the preview and `compileScene` use, and `drawMediaLayer`
+applies it through `ctx.filter`, which accepts the same function list CSS does.
+That half is recorded under "Resolved".
 
-Chroma key is the same shape: `useChromaKey` keys the base layer in the preview,
-and `grep chroma src/shared/compositor.ts` returns nothing.
-Impact: user-visible and silent. Adding an effect or keying a green screen shows
-in the preview and disappears on export, with no warning at either point.
-Note this is *not* D7. D7 is the six numeric grading fields, which do export
-through `colorAdjustFactors`; this is the effects list and chroma, which do not.
-Effort: the nine CSS-filter effects are close to free — canvas `ctx.filter`
-accepts the same string, so adding `buildEffectsCssFilter` to `compileScene`'s
-filter would carry them into the compositor engine. The three overlay effects and
-chroma key need real compositor work. The filtergraph engine needs all of it
-expressed as ffmpeg filters instead.
-Owner: unowned. The nine-effect part is worth doing before the rest is scoped.
+What is left is the part that was never cheap:
+- **Vignette, film grain and letterbox.** `buildEffectsCssFilter` returns an empty
+  string for all three; they are painted by `EffectOverlays` as DOM — a radial
+  gradient, a CSS animation and two black bars. None has a canvas counterpart, so
+  a clip that looks letterboxed in the preview exports full-frame.
+- **Chroma key.** `useChromaKey` keys the base layer in the preview and
+  `grep chroma src/shared/compositor.ts` returns nothing.
+- **The `filtergraph` engine drops all of it**, effects included: `RenderLayer`
+  carries brightness, contrast and saturation but no filter field, so the nine
+  newly-exporting effects export only on the default compositor engine. The UI
+  already warns when the fallback engages (see D7's correction), which is the
+  mitigation, not a fix.
+Impact: user-visible and silent for the three overlay effects and chroma; the
+filtergraph gap at least announces itself.
+Effort: the overlay effects are each a small canvas routine (a radial gradient
+fill, a noise tile, two rects) but they must be drawn in layer order to compose
+correctly with what is above and below them, which is the real design question.
+Chroma key is a per-pixel pass and the most expensive item in this register
+after D7. Mapping the nine CSS filters onto ffmpeg filters for the fallback is
+~0.5 day and independent of the rest.
+Owner: unowned. The filtergraph mapping is the piece worth taking first.
 
 ### D24 — Track mute is honoured by the preview and ignored by both export engines
 `track.muted` is read in exactly two places: `useAudioClips` ORs it into each
@@ -138,23 +145,6 @@ Impact: one dead control, now honest about it.
 Effort: export ~half a day including the parity test against the preview; preview
 another half to a day for the Web Audio path. Do export first only if the preview
 can follow in the same change — shipping one side would recreate D22's shape.
-Owner: next engineering slot.
-
-### D26 — Audio fades export but the preview plays them flat
-`render-plan.ts` emits `afade=t=in` / `afade=t=out` for audio clips, so a fade set
-in `AudioInspector` is in every export. `useAudioClips` computes the element's
-volume from keyframed volume and mute only — the fade envelope is never applied,
-so the preview plays the clip at full level right up to its ends and the fade
-arrives as a surprise in the exported file. Same family as D22 and D23: the export
-is right and the preview is the side lying.
-Impact: user-visible on every faded audio clip; the fade sliders work, they just
-work late.
-Effort: small. The envelope is a pure function of `(t - start, duration, fadein,
-fadeout)` and belongs beside `interpolate` in a shared module so the preview and
-any future visualisation agree; `useAudioClips` multiplies it into the value it
-already writes to `el.volume`. Verifiable with the same `HTMLMediaElement`
-property-spy technique recorded under D22, by asserting the volume the preview
-assigns at times inside the fade.
 Owner: next engineering slot.
 
 ### D9 — External tooling commits and pushes without instruction
@@ -821,3 +811,49 @@ Kept here for traceability; each has a commit.
   rather than left live, because the field it wrote is read by nothing in either
   engine. Filed as D25 with the two-backend cost spelled out; this is D7's
   treatment applied before a user could be misled by it, not after.
+- Audio fades are audible in the preview (was D26). `shared/audio-fade.ts` holds
+  `audioSpan` — the audible length in timeline seconds, `(mediaEnd - mediaStart) /
+  speed`, which is the span the export's `afade` chain times its ramps against —
+  and `fadeGain`, the product of the two linear ramps. The product rather than
+  the minimum because the export applies `afade` in and `afade` out as filters in
+  series, and series filters multiply; where the ramps overlap a clip faded over
+  its whole length sits at a quarter at the midpoint, in both engines.
+  `render-plan.ts` now takes its span from `audioSpan` instead of recomputing the
+  division inline, and `useAudioClips` multiplies the envelope into the volume it
+  already writes. 11 tests on the envelope, including that a degenerate speed of
+  0 resolves like the render plan's `|| 1` guard and that the fade window shrinks
+  with tempo.
+- **The export side of fades had no test at all before this change.** Five were
+  added against `audioGraphFilters`: no fades means no `afade`, the in-ramp starts
+  at the trimmed clip's start, the out-ramp ends at the end of the audible span,
+  the span is in output seconds so double tempo moves a 1s fade-out from `st=3`
+  to `st=1`, and the fades sit between `volume` and `adelay` in the chain. The
+  last one is the ordering the preview's single multiplication assumes.
+- Verified with the volume-spy route D26 itself proposed: nine browser checks
+  reading what `useAudioClips` assigns to `el.volume` at six points across a
+  1s-in/1s-out clip, plus a no-fade control and a keyframed-volume-times-fade
+  case. 9/9 on the fixed tree; 4/9 against a `git worktree` at the pre-fix commit,
+  where every point inside a fade read 1 — the clip played flat to its ends and
+  the fade existed only in the exported file. The two controls passed in both,
+  which is the evidence the envelope does not leak into unfaded playback.
+  One harness bug worth recording: the first version read each value twice, and
+  the second read cleared the log and then sought to a time the store was already
+  at, which is not a state change, so React never re-ran the effect. Seven of
+  eight checks "passed" on `null`. A spy-based check must read once, and must
+  move the playhead off the target before moving it back on.
+- The nine CSS-filter effects now export through the compositor (D23 narrowed to
+  the three overlay effects, chroma key and the filtergraph engine).
+  `shared/layer-filter.ts` composes preset, grading and effects into the one
+  string both engines draw with; `compileScene` and the preview's `layerFilter`
+  both call it, so the two cannot compose differently again. Canvas `ctx.filter`
+  accepts the same function list CSS does, which is the entire mechanism —
+  `drawMediaLayer` already assigned `layer.filter` to it. The scene test now
+  asserts a layer carrying `blur` reports `sepia(0.4) brightness(1.2) blur(5px)`,
+  and seven tests pin the composition order and that the three overlay effects
+  contribute an empty string, keeping that remaining gap visible instead of
+  silent.
+  **Not pixel-verified.** The app-side surface is two facts, both pinned: the
+  layer carries the string, and `compositor.ts` assigns it to `ctx.filter`. That
+  the canvas then renders `blur(5px)` as a blur is a browser guarantee, not app
+  code. Confirming it visually needs a real export, which needs Electron and a
+  media file; the parity harness is structural by design and stays that way.
