@@ -65,6 +65,8 @@ export interface RenderOutput {
   format: 'mp4' | 'mov' | 'webm'
   videoBitrate: string
   audioBitrate: string
+  /** Single-pass EBU R128 loudness normalization on the mixed audio. */
+  normalizeLoudness: boolean
 }
 
 export interface RenderPlan {
@@ -383,14 +385,32 @@ function outputArgs(plan: RenderPlan, audioCount: number, outputPath: string): s
   return args
 }
 
-export function audioMixFilter(count: number): string {
+/** Streaming loudness targets, the common delivery preset for platforms that
+ *  normalize anyway: -14 LUFS integrated, -1.5 dBTP ceiling, 11 LU range. */
+export const LOUDNORM_TARGETS = { i: -14, tp: -1.5, lra: 11 } as const
+
+/**
+ * The mix that ends every audio graph, labelled [aout] either way so every
+ * `-map [aout]` keeps working whether or not normalization is on.
+ *
+ * amix runs with normalize=0 already, which matters here: amix's own scaling
+ * would fight the loudness pass instead of feeding it an honest mix. loudnorm
+ * is single-pass, so it is dynamic rather than sample-accurate; the export
+ * dialog says so rather than implying broadcast-grade two-pass measurement.
+ */
+export function audioMixFilter(count: number, normalizeLoudness = false): string {
   const labels = Array.from({ length: count }, (_, i) => `[ax${i}]`).join('')
-  return `${labels}amix=inputs=${count}:duration=longest:normalize=0[aout]`
+  const mix = `${labels}amix=inputs=${count}:duration=longest:normalize=0`
+  if (!normalizeLoudness) return `${mix}[aout]`
+  const { i, tp, lra } = LOUDNORM_TARGETS
+  return `${mix},loudnorm=I=${i}:TP=${tp}:LRA=${lra}[aout]`
 }
 
 export function buildRenderArgs(plan: RenderPlan, outputPath: string): string[] {
   const entries = audibleAudio(plan.inputs, plan.audio)
-  const mix = entries.length ? [audioMixFilter(entries.length)] : []
+  const mix = entries.length
+    ? [audioMixFilter(entries.length, plan.output.normalizeLoudness)]
+    : []
   const graph = [
     ...videoGraph(plan),
     ...audioGraphFilters(plan.inputs, entries),
@@ -419,7 +439,9 @@ export function buildCompositedArgs(
 
   const entries = audibleAudio(inputs, audio)
   const filters = audioGraphFilters(inputs, entries, 1)
-  const mix = entries.length ? [audioMixFilter(entries.length)] : []
+  const mix = entries.length
+    ? [audioMixFilter(entries.length, output.normalizeLoudness)]
+    : []
   if (filters.length) args.push('-filter_complex', [...filters, ...mix].join(';\n'))
 
   const codecs = CODECS[output.format]

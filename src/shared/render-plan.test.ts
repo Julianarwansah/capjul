@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
-  atempoChain, audioGraphFilters, buildRenderArgs, colorAdjustChain, compileProject,
-  overlayOrigin, volumeExpression,
+  atempoChain, audioGraphFilters, audioMixFilter, buildCompositedArgs, buildRenderArgs,
+  colorAdjustChain, compileProject, overlayOrigin, volumeExpression,
   type RenderAudio, type RenderLayer, type RenderOutput,
 } from './render-plan'
 import type { AudioClip, Clip, Keyframe, MediaFile, Project } from './project-schema'
 
-const output: RenderOutput = { format: 'mp4', videoBitrate: '8M', audioBitrate: '192k' }
+const output: RenderOutput = { format: 'mp4', videoBitrate: '8M', audioBitrate: '192k', normalizeLoudness: false }
 
 function media(over: Partial<MediaFile> = {}): MediaFile {
   return { id: 'm1', path: '/tmp/a.mp4', name: 'a.mp4', type: 'video', duration: 10, size: 1, ...over }
@@ -355,5 +355,55 @@ describe('compileAudio track mute', () => {
     // overlay stacking, and silence would be a second, unasked-for consequence.
     const plan = compileProject(project({ clips: [clip({ trackId: 'gone' })] }), output)
     expect(plan.audio).toHaveLength(1)
+  })
+})
+
+describe('loudness normalization', () => {
+  const audioEntry = (): RenderAudio => ({
+    inputId: 'in0', start: 0, mediaStart: 0, mediaEnd: 4, speed: 1,
+    volume: 1, fadein: 0, fadeout: 0, keyframes: [],
+  })
+
+  it('leaves the mix byte-identical when off', () => {
+    // Every export before this feature sounded like this string; changing it
+    // would retune every existing project's audio behind a checkbox.
+    expect(audioMixFilter(2)).toBe('[ax0][ax1]amix=inputs=2:duration=longest:normalize=0[aout]')
+    expect(audioMixFilter(2, false)).toBe(audioMixFilter(2))
+  })
+
+  it('chains loudnorm into the same [aout] label when on', () => {
+    // Same label either way, so no -map anywhere has to know about the flag.
+    expect(audioMixFilter(1, true))
+      .toBe('[ax0]amix=inputs=1:duration=longest:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11[aout]')
+  })
+
+  const graphOf = (args: string[]) => args[args.indexOf('-filter_complex') + 1]
+
+  it('reaches the filtergraph engine through the output settings', () => {
+    const plan = compileProject(
+      project({ audioClips: [audioClip()] }),
+      { ...output, normalizeLoudness: true },
+    )
+    expect(graphOf(buildRenderArgs(plan, '/tmp/out.mp4'))).toContain('loudnorm=I=-14:TP=-1.5:LRA=11[aout]')
+  })
+
+  it('reaches the compositor engine through the same settings', () => {
+    const args = buildCompositedArgs(
+      [{ id: 'in0', path: '/tmp/a.mp4', hasAudio: true }],
+      [audioEntry()],
+      { width: 1280, height: 720, fps: 30, duration: 4 },
+      { ...output, normalizeLoudness: true },
+      '/tmp/out.mp4',
+    )
+    expect(graphOf(args)).toContain('loudnorm=I=-14:TP=-1.5:LRA=11[aout]')
+  })
+
+  it('stays out of the graph when there is no audio at all', () => {
+    // The video graph always emits a filter_complex, so the claim is about the
+    // audio half: no mix, therefore nothing for loudnorm to chain onto.
+    const plan = compileProject(project(), { ...output, normalizeLoudness: true })
+    const graph = graphOf(buildRenderArgs(plan, '/tmp/out.mp4'))
+    expect(graph).not.toContain('loudnorm')
+    expect(graph).not.toContain('amix')
   })
 })

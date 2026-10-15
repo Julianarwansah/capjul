@@ -54,6 +54,8 @@ export const RenderPlanSchema = z.object({
     format: z.enum(['mp4', 'mov', 'webm']),
     videoBitrate: z.string(),
     audioBitrate: z.string(),
+    // Defaulted so payloads written before the flag existed still parse.
+    normalizeLoudness: z.boolean().default(false),
   }),
 })
 

@@ -31,6 +31,7 @@ export function ExportDialog() {
   const [fps, setFps] = useState(30)
   const [format, setFormat] = useState<ExportFormat>('mp4')
   const [audioBitrate, setAudioBitrate] = useState('192k')
+  const [normalizeLoudness, setNormalizeLoudness] = useState(false)
   const [done, setDone] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [warning, setWarning] = useState<string | null>(null)
@@ -97,7 +98,7 @@ export function ExportDialog() {
       return 'fallback'
     }
 
-    const plan = compileProject(project, { format, videoBitrate: res.bitrate, audioBitrate })
+    const plan = compileProject(project, { format, videoBitrate: res.bitrate, audioBitrate, normalizeLoudness })
     const finished = api.exportVideoComposited({
       scene,
       inputs: plan.inputs,
@@ -157,7 +158,7 @@ export function ExportDialog() {
   }
 
   async function runFiltergraph(api: Api) {
-    const plan = compileProject(project, { format, videoBitrate: res.bitrate, audioBitrate })
+    const plan = compileProject(project, { format, videoBitrate: res.bitrate, audioBitrate, normalizeLoudness })
     // The dialog's resolution/fps choices override the project's own.
     plan.width = res.width
     plan.height = res.height
@@ -362,6 +363,22 @@ export function ExportDialog() {
                   ))}
                 </div>
               </div>
+
+              {/* Loudness normalization */}
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={normalizeLoudness}
+                  onChange={e => setNormalizeLoudness(e.target.checked)}
+                  style={{ marginTop: 2 }}
+                />
+                <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                  Normalisasi loudness (-14 LUFS)
+                  <span className="block" style={{ color: 'var(--color-text-muted)', fontSize: 10 }}>
+                    Satu pass loudnorm pada audio campuran. Dinamis, bukan pengukuran dua pass.
+                  </span>
+                </span>
+              </label>
 
               {/* SRT export option */}
               {project.captions.length > 0 && (
