@@ -70,7 +70,7 @@ rewrite; the other three are a separate decision.
 Owner: next engineering slot; **Julian** for what zoom-out, blur and flash should
 degrade to on the fallback.
 
-### D23 — Grain and chroma key are still preview-only
+### D23 — Grain is still preview-only, and the filtergraph engine drops effects and transitions
 **Narrowed twice.** The nine CSS-filter effects export through the compositor
 (`shared/layer-filter.ts`), and letterbox and vignette now do too: both engines
 take their numbers from `shared/overlay-effects.ts`, the compositor drawing bars
@@ -81,20 +81,19 @@ left:
   frame pump cannot reproduce it without a seeded per-frame noise source, and an
   unseeded one would make two exports of the same project differ. Preview-only by
   nature, not by omission.
-- **Chroma key.** `useChromaKey` keys the base layer in the preview and
-  `grep chroma src/shared/compositor.ts` returns nothing. A per-pixel pass; the
-  most expensive single item in this register after D7.
 - **The `filtergraph` engine drops all of it** - effects, letterbox and vignette
   included: `RenderLayer` carries brightness, contrast and saturation but no
   filter field and no overlay-effect list. The fallback warning names it.
-Impact: user-visible and silent for grain and chroma; the filtergraph gap at
-least announces itself.
+Chroma key is gone from this entry: both engines now key through
+`shared/chroma-key.ts`, recorded under "Resolved".
+Impact: user-visible and silent for grain; the filtergraph gap at least announces
+itself in the fallback warning.
 Effort: grain needs a seeded noise tile per frame and a decision on whether two
-exports of one project must be byte-identical (they should). Chroma is a
-per-pixel pass in canvas against a `chromakey` filter in ffmpeg, which does
-exist. Mapping the nine CSS filters plus the two overlay effects onto ffmpeg for
-the fallback is about a day and independent of the rest.
-Owner: unowned. The filtergraph mapping remains the piece worth taking first.
+exports of one project must be byte-identical (they should). Mapping the nine CSS
+filters plus the two overlay effects onto ffmpeg filters for the fallback is
+about a day and independent of the rest; it overlaps D15's remaining half, since
+both are "the filtergraph engine learns what the compositor now knows".
+Owner: unowned. The filtergraph mapping is still the piece worth taking first.
 
 ### D25 — Pitch shift is stored, has a live-looking slider, and is rendered nowhere
 `AudioClipSchema` carries `pitch` (-12..12 semitones) and `AudioInspector` had an
@@ -1010,3 +1009,27 @@ Kept here for traceability; each has a commit.
   ArrowUp/Down and Home/End, and handles Escape with propagation stopped - which
   also fixes a latent double-action where closing the menu cleared the selection
   through App.tsx's global Escape binding.
+- Chroma key exports (D23 narrowed again). The pixel math moved to
+  `shared/chroma-key.ts` and both engines call it: the preview hook, and the
+  compositor through a new `keyedFrame` source that draws a keyed layer's keyed
+  copy rather than its raw frame, so the green is gone before the pose, the
+  filter and any blend see it. One scratch canvas per keyed media id, because a
+  per-frame canvas allocation would put the garbage collector inside the export
+  loop. Alpha is multiplied rather than assigned - identical for opaque video,
+  correct for sources that already carry transparency, which the old preview code
+  would have flattened. The 441 distance constant stays exactly as it was,
+  slightly below the true RGB maximum, because correcting it would silently
+  widen every existing key.
+  The preview keys a 640px-wide downscale for performance while the export keys
+  at full resolution; the two agree on which pixels survive and differ only in
+  how finely the soft edge is sampled. The hook's old comment claimed full-
+  resolution export parity that did not exist, and now states the trade that does.
+- **Headless Chrome's `getImageData` readback is not trustworthy on a canvas that
+  was drawn through a transform from a decoded data-URL image.** Found while
+  pixel-verifying the above: the readback reported a mid-tolerance column as
+  fully keyed - alpha 0 - while the same frame, exported to PNG and looked at,
+  was correctly blended. A control canvas drawn without the transform read back
+  fine in the same run, and the disagreement was not reproducible across
+  identical runs. Pixel assertions in this repo therefore go through an exported
+  PNG, and numeric readback is treated as a lead rather than as evidence. Anyone
+  adding canvas tests here should know that before trusting a green run.
