@@ -66,6 +66,148 @@ function waitForVideoReady(el: HTMLVideoElement): Promise<void> {
   })
 }
 
+/**
+ * Everything drawSceneFrame needs that is not in the Scene: the decoded media
+ * behind each layer. Held as maps so a test can supply stand-ins and a recording
+ * canvas context, which is how the export draw path gets tested in node at all -
+ * prepareScene is the only part that truly needs a DOM.
+ */
+export interface SceneSources {
+  videos: Map<string, HTMLVideoElement>
+  images: Map<string, HTMLImageElement>
+  textRasters: Map<string, HTMLCanvasElement>
+  stickers: Map<string, HTMLImageElement>
+}
+
+interface DrawableSize { w: number; h: number }
+
+function sourceSize(
+  layer: SceneVideoLayer | SceneImageLayer,
+  sources: SceneSources,
+): DrawableSize | null {
+  if (layer.kind === 'video') {
+    const el = sources.videos.get(layer.mediaId)
+    return el && el.videoWidth ? { w: el.videoWidth, h: el.videoHeight } : null
+  }
+  const el = sources.images.get(layer.mediaId)
+  return el && el.naturalWidth ? { w: el.naturalWidth, h: el.naturalHeight } : null
+}
+
+function drawMediaLayer(
+  ctx: CanvasRenderingContext2D,
+  layer: SceneVideoLayer | SceneImageLayer,
+  sources: SceneSources,
+  scene: Scene,
+  t: number,
+) {
+  const el = (layer.kind === 'video' ? sources.videos.get(layer.mediaId) : sources.images.get(layer.mediaId)) as
+    | HTMLVideoElement
+    | HTMLImageElement
+    | undefined
+  const size = sourceSize(layer, sources)
+  if (!el || !size) return
+  const { width: W, height: H } = scene
+  const tr = transformAt(layer.keyframes, layer.transform, t)
+  ctx.save()
+  if (layer.filter) ctx.filter = layer.filter
+  ctx.globalAlpha = tr.opacity
+  // Order matters and is a contract, not a style choice: the preview emits its
+  // CSS transform in POSE_TRANSFORM_ORDER (scene.ts) to match these three calls.
+  // Rotation and non-uniform scale do not commute, so reordering one side
+  // without the other silently changes the result. They did diverge once; see
+  // docs/tech-debt.md, D18 (resolved).
+  ctx.translate(W / 2 + tr.x * W, H / 2 + tr.y * H)
+  ctx.rotate(tr.rotation * Math.PI / 180)
+  ctx.scale(tr.scaleX, tr.scaleY)
+  // object-fit: contain inside the canvas box, centred on the origin - the
+  // same box the preview's absolute inset-0 element occupies.
+  const s = Math.min(W / size.w, H / size.h)
+  const dw = size.w * s
+  const dh = size.h * s
+  ctx.drawImage(el, -dw / 2, -dh / 2, dw, dh)
+  ctx.restore()
+}
+
+function drawSticker(
+  ctx: CanvasRenderingContext2D,
+  layer: SceneStickerLayer,
+  sources: SceneSources,
+  scene: Scene,
+  t: number,
+) {
+  const img = sources.stickers.get(layer.clip.src)
+  if (!img) return
+  const tr = stickerTransformAt(layer.clip, t)
+  const p = stickerPlacement(
+    { ...layer.clip, x: tr.x, y: tr.y, scaleX: tr.scaleX, scaleY: tr.scaleY, rotation: tr.rotation },
+    scene.width, scene.height,
+  )
+  ctx.save()
+  ctx.globalAlpha = tr.opacity
+  ctx.translate(p.cx, p.cy)
+  ctx.rotate(p.rotationDeg * Math.PI / 180)
+  ctx.drawImage(img, -p.w / 2, -p.h / 2, p.w, p.h)
+  ctx.restore()
+}
+
+function drawText(
+  ctx: CanvasRenderingContext2D,
+  layer: SceneTextLayer,
+  sources: SceneSources,
+  scene: Scene,
+  t: number,
+) {
+  const raster = sources.textRasters.get(layer.clip.id)
+  if (!raster) return
+  const tr = textTransformAt(layer.clip, t)
+  const anim = clipAnim(layer.clip.animation, layer.clip.outAnimation, t - layer.start, layer.end - t)
+  const { width: W, height: H } = scene
+  ctx.save()
+  ctx.globalAlpha = tr.opacity * anim.opacity
+  // Preview: left/top place the box at x/y as canvas fractions, then
+  // translate(-50%,-50%) rotate() scale() about the box centre, then the
+  // animation's own translate/scale in that same local frame. The raster
+  // holds exactly that box centred, so half its size is the -50%,-50%.
+  ctx.translate(tr.x * W, tr.y * H)
+  ctx.rotate(tr.rotation * Math.PI / 180)
+  ctx.scale(tr.scaleX, tr.scaleY)
+  if (anim.dx !== 0 || anim.dy !== 0 || anim.scale !== 1) {
+    ctx.translate(anim.dx * H, anim.dy * H)
+    ctx.scale(anim.scale, anim.scale)
+  }
+  ctx.drawImage(raster, -raster.width / 2, -raster.height / 2)
+  ctx.restore()
+}
+
+/**
+ * One frame of the scene, in paint order, onto `ctx`.
+ *
+ * Module-level and source-injected so the export's drawing can be exercised in
+ * node against a recording context: before this extraction the only way to reach
+ * these calls was prepareScene, which needs a live DOM, so the code path that
+ * decides what an exported frame contains had no test at all.
+ */
+export function drawSceneFrame(
+  ctx: CanvasRenderingContext2D,
+  scene: Scene,
+  sources: SceneSources,
+  t: number,
+) {
+  ctx.save()
+  ctx.filter = 'none'
+  ctx.globalAlpha = 1
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.fillStyle = scene.background
+  ctx.fillRect(0, 0, scene.width, scene.height)
+  for (const layer of scene.layers) {
+    if (!isActiveAt(layer, t)) continue
+    if (layer.kind === 'video' || layer.kind === 'image') drawMediaLayer(ctx, layer, sources, scene, t)
+    else if (layer.kind === 'text') drawText(ctx, layer, sources, scene, t)
+    else drawSticker(ctx, layer, sources, scene, t)
+  }
+  ctx.restore()
+}
+
 export async function prepareScene(
   scene: Scene,
   media: MediaFile[],
@@ -102,98 +244,12 @@ export async function prepareScene(
     if (svg) stickers.set(src, await loadSvgImage(svg))
   }
 
-  function sourceSize(layer: SceneVideoLayer | SceneImageLayer): { w: number; h: number } | null {
-    if (layer.kind === 'video') {
-      const el = videos.get(layer.mediaId)
-      return el && el.videoWidth ? { w: el.videoWidth, h: el.videoHeight } : null
-    }
-    const el = images.get(layer.mediaId)
-    return el && el.naturalWidth ? { w: el.naturalWidth, h: el.naturalHeight } : null
-  }
-
-  function drawMediaLayer(ctx: CanvasRenderingContext2D, layer: SceneVideoLayer | SceneImageLayer, t: number) {
-    const el = (layer.kind === 'video' ? videos.get(layer.mediaId) : images.get(layer.mediaId)) as
-      | HTMLVideoElement
-      | HTMLImageElement
-      | undefined
-    const size = sourceSize(layer)
-    if (!el || !size) return
-    const { width: W, height: H } = scene
-    const tr = transformAt(layer.keyframes, layer.transform, t)
-    ctx.save()
-    if (layer.filter) ctx.filter = layer.filter
-    ctx.globalAlpha = tr.opacity
-    // Order matters and is a contract, not a style choice: the preview emits its
-    // CSS transform in POSE_TRANSFORM_ORDER (scene.ts) to match these three calls.
-    // Rotation and non-uniform scale do not commute, so reordering one side
-    // without the other silently changes the result. They did diverge once; see
-    // docs/tech-debt.md, D18 (resolved).
-    ctx.translate(W / 2 + tr.x * W, H / 2 + tr.y * H)
-    ctx.rotate(tr.rotation * Math.PI / 180)
-    ctx.scale(tr.scaleX, tr.scaleY)
-    // object-fit: contain inside the canvas box, centred on the origin - the
-    // same box the preview's absolute inset-0 element occupies.
-    const s = Math.min(W / size.w, H / size.h)
-    const dw = size.w * s
-    const dh = size.h * s
-    ctx.drawImage(el, -dw / 2, -dh / 2, dw, dh)
-    ctx.restore()
-  }
-
-  function drawSticker(ctx: CanvasRenderingContext2D, layer: SceneStickerLayer, t: number) {
-    const img = stickers.get(layer.clip.src)
-    if (!img) return
-    const tr = stickerTransformAt(layer.clip, t)
-    const p = stickerPlacement(
-      { ...layer.clip, x: tr.x, y: tr.y, scaleX: tr.scaleX, scaleY: tr.scaleY, rotation: tr.rotation },
-      scene.width, scene.height,
-    )
-    ctx.save()
-    ctx.globalAlpha = tr.opacity
-    ctx.translate(p.cx, p.cy)
-    ctx.rotate(p.rotationDeg * Math.PI / 180)
-    ctx.drawImage(img, -p.w / 2, -p.h / 2, p.w, p.h)
-    ctx.restore()
-  }
-
-  function drawText(ctx: CanvasRenderingContext2D, layer: SceneTextLayer, t: number) {
-    const raster = textCanvases.get(layer.clip.id)
-    if (!raster) return
-    const tr = textTransformAt(layer.clip, t)
-    const anim = clipAnim(layer.clip.animation, layer.clip.outAnimation, t - layer.start, layer.end - t)
-    const { width: W, height: H } = scene
-    ctx.save()
-    ctx.globalAlpha = tr.opacity * anim.opacity
-    // Preview: left/top place the box at x/y as canvas fractions, then
-    // translate(-50%,-50%) rotate() scale() about the box centre, then the
-    // animation's own translate/scale in that same local frame. The raster
-    // holds exactly that box centred, so half its size is the -50%,-50%.
-    ctx.translate(tr.x * W, tr.y * H)
-    ctx.rotate(tr.rotation * Math.PI / 180)
-    ctx.scale(tr.scaleX, tr.scaleY)
-    if (anim.dx !== 0 || anim.dy !== 0 || anim.scale !== 1) {
-      ctx.translate(anim.dx * H, anim.dy * H)
-      ctx.scale(anim.scale, anim.scale)
-    }
-    ctx.drawImage(raster, -raster.width / 2, -raster.height / 2)
-    ctx.restore()
-  }
+  const sources: SceneSources = { videos, images, textRasters: textCanvases, stickers }
 
   function drawFrame(ctx: CanvasRenderingContext2D, t: number) {
-    ctx.save()
-    ctx.filter = 'none'
-    ctx.globalAlpha = 1
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
-    ctx.fillStyle = scene.background
-    ctx.fillRect(0, 0, scene.width, scene.height)
-    for (const layer of scene.layers) {
-      if (!isActiveAt(layer, t)) continue
-      if (layer.kind === 'video' || layer.kind === 'image') drawMediaLayer(ctx, layer, t)
-      else if (layer.kind === 'text') drawText(ctx, layer, t)
-      else drawSticker(ctx, layer, t)
-    }
-    ctx.restore()
+    drawSceneFrame(ctx, scene, sources, t)
   }
+
 
   async function seekActiveVideos(t: number) {
     await Promise.all(scene.layers.map(async (layer: SceneLayer) => {
