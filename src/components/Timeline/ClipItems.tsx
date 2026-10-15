@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Lock, Unlock, Volume2, VolumeX } from 'lucide-react'
+import { BringToFront, Lock, SendToBack, Unlock, Volume2, VolumeX } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { TRACK_COLORS } from './track-colors'
 import { stickerLabel } from '../../shared/sticker-assets'
@@ -7,8 +7,8 @@ import { useThumbnail, useWaveform } from './useClipPreviews'
 import { WaveformCanvas } from './WaveformCanvas'
 import type { Clip, TextClip, AudioClip, StickerClip, Track, MediaFile } from '../../types'
 
-export function TrackLabel({ track }: { track: Track }) {
-  const { updateTrack } = useEditorStore()
+export function TrackLabel({ track, index, trackCount }: { track: Track; index: number; trackCount: number }) {
+  const { updateTrack, moveTrack } = useEditorStore()
   return (
     <div
       className="flex items-center gap-1.5 px-2"
@@ -26,30 +26,61 @@ export function TrackLabel({ track }: { track: Track }) {
         {track.label}
       </span>
       <div className="flex items-center gap-0.5">
+        {/* Stacking, not list position: a lower row paints on top in this
+            timeline, so "forward" moves the row down. The icons say front/back
+            rather than up/down so the button never promises the wrong direction. */}
+        <TinyBtn
+          icon={<SendToBack size={10} />}
+          onClick={() => moveTrack(track.id, -1)}
+          disabled={index === 0}
+          ariaLabel={`Bawa track ${track.label} ke belakang`}
+        />
+        <TinyBtn
+          icon={<BringToFront size={10} />}
+          onClick={() => moveTrack(track.id, 1)}
+          disabled={index === trackCount - 1}
+          ariaLabel={`Bawa track ${track.label} ke depan`}
+        />
         <TinyBtn
           icon={track.muted ? <VolumeX size={10} /> : <Volume2 size={10} />}
           onClick={() => updateTrack(track.id, { muted: !track.muted })}
           active={track.muted}
+          ariaLabel={track.muted ? `Bunyikan track ${track.label}` : `Bisukan track ${track.label}`}
         />
         <TinyBtn
           icon={track.locked ? <Lock size={10} /> : <Unlock size={10} />}
           onClick={() => updateTrack(track.id, { locked: !track.locked })}
           active={track.locked}
+          ariaLabel={track.locked ? `Buka kunci track ${track.label}` : `Kunci track ${track.label}`}
         />
       </div>
     </div>
   )
 }
 
-function TinyBtn({ icon, onClick, active }: { icon: React.ReactNode; onClick: () => void; active?: boolean }) {
+function TinyBtn({
+  icon, onClick, active, disabled, title, ariaLabel,
+}: {
+  icon: React.ReactNode
+  onClick: () => void
+  active?: boolean
+  disabled?: boolean
+  title?: string
+  ariaLabel: string
+}) {
   return (
     <button
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      title={title ?? ariaLabel}
+      aria-label={ariaLabel}
+      aria-pressed={active === undefined ? undefined : active}
+      disabled={disabled}
       className="w-5 h-5 rounded flex items-center justify-center"
       style={{
         background: active ? 'rgba(255,71,87,0.15)' : 'transparent',
-        border: 'none', cursor: 'pointer',
+        border: 'none', cursor: disabled ? 'default' : 'pointer',
         color: active ? 'var(--color-primary)' : 'var(--color-text-muted)',
+        opacity: disabled ? 0.35 : 1,
       }}
     >
       {icon}

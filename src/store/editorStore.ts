@@ -98,6 +98,9 @@ export interface EditorState {
 
   addTrack: (type: Track['type']) => string
   removeTrack: (id: string) => void
+  /** Restacks a track: +1 paints it above its neighbour, -1 below. No-ops at
+   *  either end of the stack. */
+  moveTrack: (id: string, direction: 1 | -1) => void
   updateTrack: (id: string, changes: Partial<Track>) => void
 
   /** Adds a marker at `time`, or removes the one already on that frame. */
@@ -390,6 +393,21 @@ export const useEditorStore = create<EditorState>()(
       return track.id
     },
     removeTrack: (id) => get().mutate(p => ({ ...p, tracks: p.tracks.filter(t => t.id !== id) })),
+    moveTrack: (id, direction) => {
+      const current = get().project.tracks.findIndex(t => t.id === id)
+      const target = current + direction
+      // Guarded outside mutate(): returning an unchanged project from inside it
+      // would spend an undo step on nothing, the same trap splitAtPlayhead guards.
+      if (current < 0 || target < 0 || target >= get().project.tracks.length) return
+      get().mutate(p => {
+        const from = p.tracks.findIndex(t => t.id === id)
+        const to = from + direction
+        if (from < 0 || to < 0 || to >= p.tracks.length) return p
+        const tracks = [...p.tracks]
+        ;[tracks[from], tracks[to]] = [tracks[to], tracks[from]]
+        return { ...p, tracks }
+      })
+    },
     updateTrack: (id, changes) => get().mutate(
       p => ({ ...p, tracks: p.tracks.map(t => t.id === id ? { ...t, ...changes } : t) }),
       true,

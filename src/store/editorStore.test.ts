@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useEditorStore } from './editorStore'
 import { computeDuration } from '../shared/project-duration'
+import { paintOrder } from '../shared/paint-order'
 import type { AudioClip, Caption, Clip, MediaFile, StickerClip, TextClip } from '../types'
 
 const s = () => useEditorStore.getState()
@@ -546,5 +547,63 @@ describe('deleteSelection', () => {
     s().deleteSelection()
 
     expect(s().history.length).toBe(before)
+  })
+})
+
+describe('moveTrack', () => {
+  function threeTracks() {
+    s().addTrack('video')
+    const ids = s().project.tracks.map(t => t.id)
+    return ids
+  }
+
+  it('swaps a track with its neighbour towards the front', () => {
+    const ids = threeTracks()
+    s().moveTrack(ids[0], 1)
+    expect(s().project.tracks.map(t => t.id)).toEqual([ids[1], ids[0], ids[2]])
+  })
+
+  it('swaps back the other way', () => {
+    const ids = threeTracks()
+    s().moveTrack(ids[2], -1)
+    expect(s().project.tracks.map(t => t.id)).toEqual([ids[0], ids[2], ids[1]])
+  })
+
+  it('does nothing at either end of the stack, and spends no undo step doing it', () => {
+    const ids = threeTracks()
+    const steps = s().history.length
+    s().moveTrack(ids[0], -1)
+    s().moveTrack(ids[ids.length - 1], 1)
+    expect(s().project.tracks.map(t => t.id)).toEqual(ids)
+    expect(s().history.length).toBe(steps)
+  })
+
+  it('does nothing for a track that is not there', () => {
+    const ids = threeTracks()
+    s().moveTrack('no-such-track', 1)
+    expect(s().project.tracks.map(t => t.id)).toEqual(ids)
+  })
+
+  it('is one undo step, like every other project mutation', () => {
+    const ids = threeTracks()
+    s().moveTrack(ids[0], 1)
+    s().undo()
+    expect(s().project.tracks.map(t => t.id)).toEqual(ids)
+  })
+
+  it('restacks what the preview and the compositor paint, because paint order is track order', () => {
+    const ids = threeTracks()
+    const clipOn = (trackId: string, id: string) => makeClip({ id, trackId, startTime: 0, duration: 4 })
+    s().loadProject({
+      ...s().project,
+      media: [makeMedia()],
+      clips: [clipOn(ids[0], 'low'), clipOn(ids[1], 'mid'), clipOn(ids[2], 'high')],
+    })
+    const order = () => paintOrder(s().project).map(i => i.clip.id)
+    expect(order()).toEqual(['low', 'mid', 'high'])
+    s().moveTrack(ids[0], 1)
+    expect(order()).toEqual(['mid', 'low', 'high'])
+    s().moveTrack(ids[2], -1)
+    expect(order()).toEqual(['mid', 'high', 'low'])
   })
 })

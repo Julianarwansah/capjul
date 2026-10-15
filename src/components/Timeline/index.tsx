@@ -120,8 +120,8 @@ export function Timeline() {
           <div style={{ height: RULER_HEIGHT, borderBottom: '1px solid var(--color-border)' }} />
 
           {/* Track labels */}
-          {allTracks.map(track => (
-            <TrackLabel key={track.id} track={track} />
+          {allTracks.map((track, i) => (
+            <TrackLabel key={track.id} track={track} index={i} trackCount={allTracks.length} />
           ))}
         </div>
 

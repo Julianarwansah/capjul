@@ -30,6 +30,7 @@ describe('the table itself', () => {
     const events = [
       ev('Space'), ev('KeyZ', meta), ev('KeyZ', metaShift), ev('Delete'), ev('Backspace'),
       ev('KeyS', meta), ev('KeyB'), ev('KeyB', meta), ev('KeyD', meta), ev('KeyV', meta),
+      ev('KeyA', meta), ev('Escape'),
       ev('ArrowLeft'), ev('ArrowLeft', shift), ev('ArrowRight'), ev('ArrowRight', shift),
       ev('Comma'), ev('Period'), ev('KeyJ'), ev('KeyJ', shift), ev('KeyK'), ev('KeyL'),
       ev('KeyL', shift), ev('Home'), ev('End'), ev('KeyM'), ev('BracketLeft'),
@@ -69,6 +70,8 @@ describe('findShortcut', () => {
     expect(idFor(ev('KeyB', meta))).toBe('split')
     expect(idFor(ev('KeyD', meta))).toBe('duplicate')
     expect(idFor(ev('KeyS', meta))).toBe('save')
+    expect(idFor(ev('KeyA', meta))).toBe('select-all')
+    expect(idFor(ev('Escape'))).toBe('clear-selection')
   })
 
   it('resolves marker keys', () => {

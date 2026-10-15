@@ -89,7 +89,7 @@ export default function App() {
     undo, redo, setIsPlaying, isPlaying,
     currentTime, setCurrentTime, project,
     splitAtPlayhead, duplicateSelection, deleteSelection,
-    toggleMarker,
+    toggleMarker, setSelected, clearSelection,
   } = useEditorStore()
 
   // Keyboard shortcuts. This is the only place global keys are dispatched; the
@@ -132,6 +132,18 @@ export default function App() {
       }
       case 'split': e.preventDefault(); splitAtPlayhead(); break
       case 'duplicate': e.preventDefault(); duplicateSelection(); break
+      case 'select-all': {
+        e.preventDefault()
+        const p = project
+        setSelected({
+          clips: p.clips.map(c => c.id),
+          texts: p.textClips.map(c => c.id),
+          stickers: p.stickerClips.map(c => c.id),
+          audios: p.audioClips.map(c => c.id),
+        })
+        break
+      }
+      case 'clear-selection': e.preventDefault(); clearSelection(); break
       case 'step-back-frame': e.preventDefault(); seekBy(-1); break
       case 'step-fwd-frame': e.preventDefault(); seekBy(1); break
       case 'step-back-5s': e.preventDefault(); seekBy(-fiveSeconds); break
@@ -181,6 +193,7 @@ export default function App() {
     isPlaying, currentTime, project,
     setIsPlaying, undo, redo, setCurrentTime,
     splitAtPlayhead, duplicateSelection, deleteSelection, toggleMarker,
+    setSelected, clearSelection,
   ])
 
   useEffect(() => {

@@ -50,6 +50,8 @@ export const SHORTCUTS = [
   // what CapCut users reach for.
   { id: 'split', group: 'Editing', keys: 'B', scope: 'global', description: 'Potong di playhead', match: plain('KeyB') },
   { id: 'duplicate', group: 'Editing', keys: '⌘D', scope: 'global', description: 'Duplikat yang dipilih', match: modCode('KeyD') },
+  { id: 'select-all', group: 'Editing', keys: '⌘A', scope: 'global', description: 'Pilih semua clip', match: modCode('KeyA') },
+  { id: 'clear-selection', group: 'Editing', keys: 'Esc', scope: 'global', description: 'Kosongkan pilihan', match: e => e.code === 'Escape' },
   { id: 'paste', group: 'Editing', keys: '⌘V', scope: 'timeline', description: 'Tempel salinan', match: modCode('KeyV') },
 
   { id: 'step-back-frame', group: 'Playback', keys: '←', scope: 'global', description: 'Mundur satu frame', match: e => e.code === 'ArrowLeft' && !e.shiftKey },
