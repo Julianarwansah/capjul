@@ -148,22 +148,23 @@ can follow in the same change — shipping one side would recreate D22's shape.
 Owner: next engineering slot.
 
 ### D9 — External tooling commits and pushes without instruction
-Five times now an unidentified tool in this environment created commits and
+Seven times now an unidentified tool in this environment created commits and
 pushed them, using the local git identity, without being asked. One push raced a
 local history rewrite; it happened not to collide.
 
-**The fifth occurrence is the most diagnostic, because it pushed without
-committing.** `origin/main` moved from `9c34f76` to `038115f`, carrying exactly
-four commits that were authored locally and deliberately held back pending
-instruction. Nothing was written, nothing was overwritten — `git reflog show
-origin/main` records `update by push` and `merge-base --is-ancestor origin/main
-HEAD` still holds, so the history stayed a clean fast-forward. Every previous
-occurrence produced a commit as well as a push; this one produced only the push.
-So the mechanism has a push path that does not depend on it having authored
-anything, which rules out "an auto-commit feature that pushes what it made" and
-points at something that syncs the branch as such — a checkpoint/restore feature,
-an editor's git integration, or a sync daemon. It also means holding commits back
-locally is not by itself a safeguard.
+**The sixth and seventh occurrences date the mechanism.** Reflog timestamps
+against commit timestamps: `598743e` committed 11:20:42 and pushed 11:21:53;
+`de3d003` pushed 10:56:16, minutes after its commit; `ba128fe` 10:32:03;
+`038115f` 09:28:03. The gaps between pushes (09:28 → 10:32 → 10:56 → 11:21) track
+when commits were *made*, not a fixed schedule, and each push follows its commit
+by about a minute. So something watches the repository and publishes shortly
+after HEAD moves. Combined with the fifth occurrence — a push that authored
+nothing — the picture is a sync daemon or checkpoint feature that mirrors the
+branch, reacting to local commits rather than producing them.
+The practical consequence is stronger than "do not push without instruction":
+**committing is publishing**, within about a minute, whether or not anyone asks
+for a push. Holding commits back locally is not a safeguard and never was; the
+only private state is uncommitted working tree.
 
 It has now been narrowed, which is the useful part. **The mechanism is not in
 this repository.** There are no git hooks (`.git/hooks` holds only the samples),
@@ -180,9 +181,9 @@ paths did.
 
 Impact: process risk — unreviewed or half-finished states become public history,
 with commit messages that misdescribe the change. This is the only item in the
-register that cannot be fixed from inside the codebase. The fifth occurrence
-raises it slightly: publishing is now separable from authoring, so a commit made
-in confidence that it is still local may not stay local.
+register that cannot be fixed from inside the codebase, and the dating above
+makes it the sharpest one: a commit is a publication with about a minute of
+privacy, so "I have not pushed it" no longer means anything anyone can rely on.
 Effort: unknown until the tool is identified. Check editor/agent auto-commit,
 checkpointing or branch-sync settings; `git reflog show origin/main` timestamps
 against `git log --format='%h %ad %s' --date=iso` will show which pushes do not
