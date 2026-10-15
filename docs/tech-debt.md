@@ -117,31 +117,6 @@ another half to a day for the Web Audio path. Do export first only if the previe
 can follow in the same change — shipping one side would recreate D22's shape.
 Owner: next engineering slot.
 
-### D27 — Captions render in the preview and in neither export engine
-`project.captions` (SRT import and the TextPanel's caption editor) are painted by
-`CaptionOverlay` in the preview and read by nothing else: not `compileScene`, not
-`compositor.ts`, not `render-plan.ts`. An imported subtitle track is visible
-while editing and absent from every export, silently - the same class as D15 and
-D23 were, and the last remaining content the preview shows that the default
-engine does not draw.
-
-The blocker is line wrapping, not rasterization. `layoutText` splits on explicit
-newlines only; the preview's caption box wraps with CSS `pre-wrap` at 80% of the
-canvas width. Exporting captions as they are would ship different line breaks
-from the ones the user read, which is worse for subtitles than for any other
-text because the breaks are the content.
-The design that resolves it: a shared greedy wrap taking a `measure` function,
-called with `measureText` on both sides under the same font string and the same
-max width, with the preview rendering the resulting lines under `white-space:
-pre` instead of letting CSS wrap. Line breaks then come from one algorithm and
-one metric source, and the existing text rasterizer can draw the joined lines
-unchanged. The filtergraph engine gets captions through the same overlay-PNG
-path text clips already use.
-Impact: a whole imported artefact vanishes on export with no warning.
-Effort: about a day, most of it the wrap function and making the preview stop
-wrapping in CSS; the draw and overlay paths already exist for text.
-Owner: next engineering slot.
-
 ### D9 — External tooling commits and pushes without instruction
 Seven times now an unidentified tool in this environment created commits and
 pushed them, using the local git identity, without being asked. One push raced a
@@ -1058,3 +1033,26 @@ Kept here for traceability; each has a commit.
   identical runs. Pixel assertions in this repo therefore go through an exported
   PNG, and numeric readback is treated as a lead rather than as evidence. Anyone
   adding canvas tests here should know that before trusting a green run.
+- Captions burn into both export engines (was D27). The blocker was line breaks,
+  not rasterization: `layoutText` splits on explicit newlines only while the
+  preview's caption box wrapped in CSS, so exporting captions as they stood would
+  have shipped different breaks from the ones the user read - and for subtitles
+  the breaks are the content. `shared/caption-layout.ts` now owns one greedy wrap
+  with the measuring function injected, one style, and one anchor (box bottom at
+  8% of canvas height, computed from the box height *excluding* the rasterizer's
+  bleed, which is transparent margin centred on the box and must not move it).
+  The compositor and the filtergraph path measure with a real `measureText` in
+  the caption face; the preview measures with the same and renders the resulting
+  lines under `white-space: pre`, so CSS never wraps again and cannot disagree.
+  The Scene carries captions as id, window and raw text; wrapping stays per
+  renderer because measuring needs a canvas and `compileScene` is DOM-free, which
+  the parity tests and the main process both rely on.
+  The compositor rasterizes each caption once in `prepareScene` and draws it above
+  every layer and above overlay effects, where `CaptionOverlay` sits in the
+  preview DOM. The filtergraph engine gets captions through the overlay-PNG path
+  text clips already use, above stickers; its sidecar `.srt` option stays, as a
+  delivery mode rather than as the only way captions survive an export.
+  Verified three ways: 13 unit tests on the wrap, the anchor and the window; 5
+  mock-context tests on the draw; 8 browser checks that the preview's DOM carries
+  explicit breaks equal to `wrapLines` against a real `measureText`; and a
+  rendered PNG of the export draw path showing the wrapped, anchored caption.
