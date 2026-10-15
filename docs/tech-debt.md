@@ -811,6 +811,37 @@ Kept here for traceability; each has a commit.
   rather than left live, because the field it wrote is read by nothing in either
   engine. Filed as D25 with the two-backend cost spelled out; this is D7's
   treatment applied before a user could be misled by it, not after.
+- Track mute is honoured everywhere (was D24). `shared/track-audio.ts` holds the
+  one predicate: `compileAudio` drops a muted video clip's audio entry entirely
+  and zeroes a muted audio clip's volume, which covers both export engines at
+  once because both build their audio graph from `compileProject`, and the
+  preview passes master-mute-or-track-mute into every `MediaLayer`. The semantics
+  decision the item was waiting on was made rather than escalated — mute
+  silences, never hides, because hiding is what a track visibility control would
+  do and the timeline has none — and the reasoning is in the commit.
+- The keyboard surface has a single source of truth and a reference (new
+  feature). 27 bindings across four features were documented nowhere; `?` or the
+  top bar button now opens a modal listing them, grouped. `shared/shortcuts.ts`
+  carries each binding's matcher and label; `App.tsx` dispatches through
+  `findShortcut` and a switch whose cases are exhaustive over the literal id
+  union, so a table row with no handler is a compile error, and the overlay
+  renders the same array, so it cannot document a binding that does not exist.
+  The handler refactor preserved behaviour quirks deliberately: the old chain did
+  not guard most plain keys on the modifier, so `⌘K` paused and still does, and
+  `⌘M` stays unbound because macOS gives it to window minimise.
+  34 browser checks dispatch real key events for every binding — the regression
+  suite the if/else chain never had, and the thing that makes the refactor safe
+  rather than assumed. The modal traps Tab, takes and returns focus, and swallows
+  keys while open.
+- **Two harness bugs from that run, recorded because both produced failures that
+  looked like app bugs.** The store helper wrapped its argument as
+  `return <expression>`, so a semicolon-joined pair of calls silently dropped the
+  second: the selection was never set, split correctly refused to split an
+  unselected clip, and three checks failed in a cascade. And on macOS a mouse
+  click does not focus a button, so "focus returns to the trigger" measured
+  platform behaviour until the check focused the button first. The first is the
+  more general trap: a test helper that evaluates one expression will eat the
+  rest of a statement list without a warning.
 - Audio fades are audible in the preview (was D26). `shared/audio-fade.ts` holds
   `audioSpan` — the audible length in timeline seconds, `(mediaEnd - mediaStart) /
   speed`, which is the span the export's `afade` chain times its ramps against —
