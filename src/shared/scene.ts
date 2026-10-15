@@ -1,5 +1,5 @@
-import { buildCssFilter, colorAdjustFactors } from './color-adjust'
 import { interpolate } from './keyframe-interpolate'
+import { mediaLayerFilter } from './layer-filter'
 import { paintOrder } from './paint-order'
 import type { Clip, Keyframe, Project, StickerClip, TextClip } from './project-schema'
 
@@ -83,7 +83,7 @@ export function compileScene(project: Project): Scene {
         opacity: clip.opacity,
       },
       keyframes: clip.keyframes ?? [],
-      filter: [clip.filter ?? '', buildCssFilter(colorAdjustFactors(clip))].filter(Boolean).join(' '),
+      filter: mediaLayerFilter(clip),
     }
     return item.media.type === 'image'
       ? { kind: 'image', ...base }

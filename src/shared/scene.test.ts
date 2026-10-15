@@ -67,13 +67,19 @@ describe('compileScene', () => {
     expect(scene.layers).toEqual([])
   })
 
-  it('carries the preview filter string, presets and numeric adjust together', () => {
+  it('carries the preview filter string: preset, numeric adjust and effects together', () => {
     const scene = compileScene(project({
-      clips: [clip({ filter: 'sepia(0.4)', brightness: 20, contrast: 0, saturation: 0 })],
+      clips: [clip({
+        filter: 'sepia(0.4)', brightness: 20, contrast: 0, saturation: 0,
+        effects: [{ id: 'blur', intensity: 0.5 }],
+      })],
     }))
     const layer = scene.layers[0]
     expect(layer.kind).toBe('video')
-    if (layer.kind === 'video') expect(layer.filter).toBe('sepia(0.4) brightness(1.2)')
+    // The effects used to stop at the preview (D23). The layer now carries the
+    // same string the preview draws with, and drawMediaLayer applies it through
+    // ctx.filter, which accepts the same function list CSS does.
+    if (layer.kind === 'video') expect(layer.filter).toBe('sepia(0.4) brightness(1.2) blur(5px)')
   })
 
   it('keeps image media as image layers', () => {

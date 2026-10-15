@@ -6,11 +6,10 @@ import { PreviewGuideToggles, PreviewZoomControls } from './Toolbar'
 import {
   CaptionOverlay, EffectOverlays, GuideOverlays, StickerOverlay, TextOverlay,
 } from './Overlays'
-import { buildCssFilter, colorAdjustFactors } from '../../shared/color-adjust'
-import { buildEffectsCssFilter } from '../../shared/effects'
 import { findActiveTransition, transitionStyles } from '../../shared/transitions'
 import { activePaintAt, type PaintItem } from '../../shared/paint-order'
 import { clipMediaTimeAt } from '../../shared/scene'
+import { mediaLayerFilter } from '../../shared/layer-filter'
 import { IncomingMediaLayer, MediaLayer } from './MediaLayers'
 import { useAudioClips } from './useAudioClips'
 import { useChromaKey } from './useChromaKey'
@@ -18,16 +17,11 @@ import type { Clip } from '../../types'
 
 type ClipPaintItem = Extract<PaintItem, { kind: 'clip' }>
 
-// The CSS filter a media layer draws with. The numeric adjustments and the preset
-// string both come from what `compileScene` puts on the layer, so grading exports;
-// `buildEffectsCssFilter` is preview-only and has no compositor equivalent.
+// The CSS filter a media layer draws with. Both engines compose it through
+// mediaLayerFilter, so the string the preview shows is the string the compositor
+// draws - including the clip effects, which used to stop at the preview (D23).
 function layerFilter(clip: Clip | null): string {
-  if (!clip) return ''
-  return [
-    clip.filter ?? '',
-    buildCssFilter(colorAdjustFactors(clip)),
-    buildEffectsCssFilter(clip.effects ?? []),
-  ].filter(Boolean).join(' ')
+  return clip ? mediaLayerFilter(clip) : ''
 }
 
 export function PreviewPanel() {
