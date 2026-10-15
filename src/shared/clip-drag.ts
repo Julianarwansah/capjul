@@ -60,6 +60,44 @@ export function draggedStartTimeSnapped(opts: {
 }
 
 /**
+ * The pixel delta a trim should use once the dragged edge has been snapped.
+ *
+ * Snapping is expressed as a corrected delta rather than a corrected result so
+ * that `trimChanges` stays the single place that knows the clamps: the minimum
+ * duration, the floor at timeline zero, and the media window moving with the
+ * edge. Feeding it a snapped delta gets all of that for free, and with snapping
+ * off the delta passes through untouched.
+ *
+ * `clip.id` is excluded from the snap targets so an edge cannot snap to the
+ * clip's own other edge through itself.
+ */
+export function snappedTrimDxPx(opts: {
+  side: 'left' | 'right'
+  clip: DraggableClip & { id: string }
+  dxPx: number
+  pxPerSec: number
+  project: Project
+  playhead: number
+  snap: boolean
+}): number {
+  if (!opts.snap) return opts.dxPx
+  const dx = opts.dxPx / opts.pxPerSec
+  if (opts.side === 'right') {
+    const rawEnd = opts.clip.startTime + opts.clip.duration + dx
+    const end = snapTime(opts.project, rawEnd, opts.playhead, opts.pxPerSec, opts.clip.id)
+    // snapTime returns its input when nothing is in range; passing the original
+    // delta back untouched in that case keeps the no-snap path exact instead of
+    // round-tripping it through time and picking up float noise.
+    if (end === rawEnd) return opts.dxPx
+    return (end - (opts.clip.startTime + opts.clip.duration)) * opts.pxPerSec
+  }
+  const rawStart = Math.max(0, opts.clip.startTime + dx)
+  const start = snapTime(opts.project, rawStart, opts.playhead, opts.pxPerSec, opts.clip.id)
+  if (start === rawStart) return opts.dxPx
+  return (start - opts.clip.startTime) * opts.pxPerSec
+}
+
+/**
  * What to write when a clip edge is dragged `dxPx` pixels.
  *
  * Dragging the right edge changes only the duration; dragging the left edge

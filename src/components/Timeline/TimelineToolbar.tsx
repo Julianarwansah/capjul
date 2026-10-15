@@ -1,4 +1,4 @@
-import { Eraser, Flag, Plus, Scissors, Trash2 } from 'lucide-react'
+import { Eraser, Flag, Magnet, Plus, Scissors, Trash2 } from 'lucide-react'
 
 // The strip above the tracks: add a track, split or delete the selection, mark
 // the playhead, and zoom. Presentational only - the actions and the selection
@@ -10,11 +10,13 @@ export interface TimelineToolbarProps {
   markerCount: number
   /** A marker sits on the playhead's frame, so the button removes rather than adds. */
   markerAtPlayhead: boolean
+  snapEnabled: boolean
   onAddTrack: () => void
   onSplit: () => void
   onDelete: () => void
   onToggleMarker: () => void
   onClearMarkers: () => void
+  onToggleSnap: () => void
   onZoom: (zoom: number) => void
 }
 
@@ -24,8 +26,8 @@ export const DEFAULT_PX_PER_SEC = 80
 const TOOL_BUTTON = 'text-xs px-2 h-6 rounded flex items-center gap-1'
 
 export function TimelineToolbar({
-  zoom, hasSelection, markerCount, markerAtPlayhead,
-  onAddTrack, onSplit, onDelete, onToggleMarker, onClearMarkers, onZoom,
+  zoom, hasSelection, markerCount, markerAtPlayhead, snapEnabled,
+  onAddTrack, onSplit, onDelete, onToggleMarker, onClearMarkers, onToggleSnap, onZoom,
 }: TimelineToolbarProps) {
   return (
     <div
@@ -96,6 +98,38 @@ export function TimelineToolbar({
           <Eraser size={11} /> {markerCount}
         </button>
       )}
+      {/* The icon changes shape as well as colour, so the state does not rest on
+          colour alone; aria-pressed carries it for assistive tech. */}
+      <button
+        className={TOOL_BUTTON}
+        title={snapEnabled
+          ? 'Snap mati: geser dan trim bebas (shift tetap membebaskan)'
+          : 'Snap nyala: geser dan trim menempel ke playhead, tepi clip dan marker'}
+        aria-label={snapEnabled ? 'Matikan snap' : 'Nyalakan snap'}
+        aria-pressed={snapEnabled}
+        style={{
+          background: snapEnabled ? 'var(--color-bg-surface)' : 'transparent',
+          color: snapEnabled ? 'var(--color-primary)' : 'var(--color-text-muted)',
+          border: 'none', cursor: 'pointer',
+          opacity: snapEnabled ? 1 : 0.6,
+        }}
+        onClick={onToggleSnap}
+      >
+        {/* lucide has no magnet-off glyph, so the off state strikes the magnet
+            through: a shape change, not only a colour change. */}
+        <span style={{ position: 'relative', display: 'inline-flex' }}>
+          <Magnet size={11} />
+          {!snapEnabled && (
+            <span
+              aria-hidden="true"
+              style={{
+                position: 'absolute', left: -1, right: -1, top: '50%', height: 1,
+                background: 'currentColor', transform: 'rotate(-45deg)',
+              }}
+            />
+          )}
+        </span>
+      </button>
       <div className="flex items-center gap-1 ml-auto">
         <label className="text-xs" htmlFor="timeline-zoom" style={{ color: 'var(--color-text-muted)' }}>Zoom</label>
         <input

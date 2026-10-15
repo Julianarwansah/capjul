@@ -33,6 +33,8 @@ export interface EditorState {
   showExportDialog: boolean
   showProjectSettings: boolean
   showShortcuts: boolean
+  /** Session preference, not project data: whether drags and trims snap. */
+  snapEnabled: boolean
   isExporting: boolean
   exportProgress: number
   // History
@@ -114,6 +116,7 @@ export interface EditorState {
   setShowExportDialog: (v: boolean) => void
   setShowProjectSettings: (v: boolean) => void
   setShowShortcuts: (v: boolean) => void
+  setSnapEnabled: (v: boolean) => void
   setIsExporting: (v: boolean) => void
   setExportProgress: (v: number) => void
 
@@ -147,6 +150,7 @@ export const useEditorStore = create<EditorState>()(
     showExportDialog: false,
     showProjectSettings: false,
     showShortcuts: false,
+    snapEnabled: true,
     isExporting: false,
     exportProgress: 0,
     history: [initialProject],
@@ -417,6 +421,7 @@ export const useEditorStore = create<EditorState>()(
     setShowExportDialog: (v) => set({ showExportDialog: v }),
     setShowProjectSettings: (v) => set({ showProjectSettings: v }),
     setShowShortcuts: (v) => set({ showShortcuts: v }),
+    setSnapEnabled: (v) => set({ snapEnabled: v }),
     setIsExporting: (v) => set({ isExporting: v }),
     setExportProgress: (v) => set({ exportProgress: v }),
 

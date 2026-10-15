@@ -1,6 +1,6 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { useEditorStore } from '../../store/editorStore'
-import { draggedStartTimeSnapped, trimChanges, type DraggableClip, type TrimChanges } from '../../shared/clip-drag'
+import { draggedStartTimeSnapped, snappedTrimDxPx, trimChanges, type DraggableClip, type TrimChanges } from '../../shared/clip-drag'
 
 // DOM glue for dragging and trimming clips on the timeline. All the arithmetic
 // lives in shared/clip-drag.ts, which is pure and tested; this module only
@@ -78,7 +78,7 @@ export function startClipMove(
       project: s.project,
       playhead: s.currentTime,
       excludeId: clipId,
-      snap: !me.shiftKey,
+      snap: s.snapEnabled && !me.shiftKey,
     })
     update(clipId, { startTime })
   })
@@ -87,6 +87,10 @@ export function startClipMove(
 /**
  * Trims a clip from one edge. Clips that address a window of a source file move
  * that window with the trim; text and stickers have none and only change timing.
+ *
+ * Edges snap like moves do - to the playhead, other clips' edges and markers -
+ * which they did not before: a drag would land on a beat and a trim on a pixel
+ * next to it. Shift held during the trim, or the magnet off, trims freely.
  */
 export function startClipTrim(
   e: ReactMouseEvent,
@@ -99,7 +103,16 @@ export function startClipTrim(
   const startX = e.clientX
 
   trackDrag(me => {
-    const pxPerSec = useEditorStore.getState().zoom
-    update(clip.id, trimChanges(side, clip, me.clientX - startX, pxPerSec))
+    const s = useEditorStore.getState()
+    const dxPx = snappedTrimDxPx({
+      side,
+      clip,
+      dxPx: me.clientX - startX,
+      pxPerSec: s.zoom,
+      project: s.project,
+      playhead: s.currentTime,
+      snap: s.snapEnabled && !me.shiftKey,
+    })
+    update(clip.id, trimChanges(side, clip, dxPx, s.zoom))
   })
 }

@@ -24,6 +24,7 @@ export function Timeline() {
     addTrack, addClip, addAudioClip,
     splitAtPlayhead, deleteSelection,
     toggleMarker, removeMarker, clearMarkers,
+    snapEnabled, setSnapEnabled,
   } = useEditorStore()
   const hasSelection = useEditorStore(selectHasSelection)
 
@@ -99,11 +100,13 @@ export function Timeline() {
         hasSelection={hasSelection}
         markerCount={project.markers.length}
         markerAtPlayhead={!!markerAt(project.markers, currentTime, project.fps)}
+        snapEnabled={snapEnabled}
         onAddTrack={() => addTrack('video')}
         onSplit={splitAtPlayhead}
         onDelete={deleteSelection}
         onToggleMarker={() => toggleMarker(currentTime)}
         onClearMarkers={clearMarkers}
+        onToggleSnap={() => setSnapEnabled(!snapEnabled)}
         onZoom={setZoom}
       />
 

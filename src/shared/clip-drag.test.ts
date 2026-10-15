@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MIN_CLIP_SECONDS, draggedStartTime, draggedStartTimeSnapped, trimChanges,
+  MIN_CLIP_SECONDS, draggedStartTime, draggedStartTimeSnapped, snappedTrimDxPx, trimChanges,
 } from './clip-drag'
 import type { Project } from './project-schema'
 
@@ -131,5 +131,69 @@ describe('trimChanges', () => {
       expect(trimChanges('left', overlay, -100, PX)).toEqual({ startTime: 1, duration: 6 })
       expect(trimChanges('right', overlay, -100, PX)).toEqual({ duration: 4 })
     })
+  })
+})
+
+describe('snappedTrimDxPx', () => {
+  // 8px at 100px/s: a raw edge within 0.08s of a target snaps to it.
+  const clip = { id: 'c', startTime: 2, duration: 5, mediaStart: 3 }
+  const opts = (over: Partial<Parameters<typeof snappedTrimDxPx>[0]> = {}) => ({
+    side: 'right' as const,
+    clip,
+    dxPx: 45,
+    pxPerSec: PX,
+    project: project(),
+    playhead: 20,
+    snap: true,
+    ...over,
+  })
+
+  it('passes the delta through untouched when snapping is off', () => {
+    expect(snappedTrimDxPx(opts({ snap: false }))).toBe(45)
+  })
+
+  it('leaves the delta alone when no target is in range', () => {
+    expect(snappedTrimDxPx(opts())).toBe(45)
+  })
+
+  it('snaps the right edge to a marker', () => {
+    // Raw end 7.45, marker at 7.5: the corrected delta puts the edge exactly on
+    // the marker, and trimChanges then derives duration and mediaEnd from it.
+    const o = opts({ project: project({ markers: [{ id: 'k', time: 7.5 }] }) })
+    expect(snappedTrimDxPx(o)).toBe(50)
+  })
+
+  it('snaps the right edge to the playhead', () => {
+    expect(snappedTrimDxPx(opts({ playhead: 7.5 }))).toBe(50)
+  })
+
+  it('snaps the left edge', () => {
+    const o = opts({
+      side: 'left',
+      project: project({ markers: [{ id: 'k', time: 2.5 }] }),
+    })
+    expect(snappedTrimDxPx(o)).toBe(50)
+  })
+
+  it('lets the left edge snap to zero', () => {
+    const o = opts({
+      side: 'left',
+      dxPx: -195,
+      project: project({ markers: [{ id: 'k', time: 0 }] }),
+    })
+    expect(snappedTrimDxPx(o)).toBe(-200)
+  })
+
+  // A trim must not snap to the other end of the clip being trimmed, or dragging
+  // an edge near it would collapse the clip onto its own boundary.
+  it('excludes the trimmed clip\'s own edges', () => {
+    // Raw end 6.95 is within range of the clip's own end at 7; with the id
+    // excluded there is nothing to snap to and the delta survives.
+    expect(snappedTrimDxPx(opts({ dxPx: -5 }))).toBe(-5)
+  })
+
+  it('composes with trimChanges so the clamps still apply', () => {
+    const dx = snappedTrimDxPx(opts({ project: project({ markers: [{ id: 'k', time: 7.5 }] }) }))
+    expect(trimChanges('right', clip, dx, PX)).toEqual({ duration: 5.5, mediaEnd: 8.5 })
   })
 })
