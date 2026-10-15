@@ -1122,3 +1122,26 @@ Kept here for traceability; each has a commit.
   check first failed because it hardcoded 100 px/s against a default zoom of 80 -
   the third probe this session whose first failure was the probe's arithmetic
   rather than the app, and the third time the fix was to read the live value.
+- Range export (new feature): with a loop armed, the export dialog offers
+  "Export hanya range loop" and compiles from a windowed project. Windowing is a
+  pure project transform (`shared/project-window.ts`) rather than a plan
+  transform, because both engines compile from a `Project` - so re-basing the
+  project gives the filtergraph engine, the compositor, the overlay rasters and
+  the SRT sidecar the same range without any of them knowing about it, which is
+  the same argument that put paint order and the source-time formula in shared
+  modules. The feature composes with the A/B loop instead of adding a second pair
+  of in/out points to keep in sync with it.
+  The transform's edges carry the decisions: straddling items are trimmed rather
+  than dropped; a clip trimmed at the in point advances its media window by the
+  trimmed front times its speed, so the export's first frame is the frame the
+  full project showed at the in point; keyframe times shift with the window; a
+  fade-in that began before the window spends the part that already happened
+  rather than restarting at the edge, and a fade-out cut short completes at the
+  new end. Transitions need nothing at all - they resolve from clips at compile
+  time, so one whose clips survived survives with them and one whose ends were
+  dropped resolves to nothing.
+  Verified by twelve unit tests, by the ffmpeg-execution suite encoding a window
+  that starts and ends mid-clip (the case where a hand-built graph would most
+  likely reference a timestamp past the end of its trim), and by four browser
+  checks on the dialog: no loop armed means no range option at all, so the
+  control cannot promise a range that does not exist.
