@@ -1,7 +1,12 @@
+import { useMemo } from 'react'
 import { STICKER_BASE_RATIO } from '../../shared/sticker-assets'
 import { stickerDataUrl } from '../../shared/sticker-svgs'
 import { clipAnim } from '../../shared/text-animation'
 import { VIGNETTE_RADIUS_FRACTIONS, letterboxFraction, vignetteStops } from '../../shared/overlay-effects'
+import {
+  CAPTION_BOTTOM_FRACTION, CAPTION_FONT_PX, CAPTION_LINE_HEIGHT, CAPTION_WIDTH_FRACTION,
+  captionToTextClip, createCaptionMeasurer,
+} from '../../shared/caption-layout'
 import { stickerTransformAt, textTransformAt } from '../../shared/scene'
 import type { Caption, Clip, StickerClip, TextClip } from '../../types'
 
@@ -89,27 +94,53 @@ export function StickerOverlay({ clip: s, currentTime, onMouseDown }: StickerOve
   )
 }
 
-export function CaptionOverlay({ caption: c, canvasH }: { caption: Caption; canvasH: number }) {
+// One measurer for the whole session: it owns a probe canvas, and creating one
+// per caption per render would allocate a canvas for every subtitle on every
+// playhead tick.
+let sharedMeasurer: ((s: string) => number) | null = null
+function measurer() {
+  if (!sharedMeasurer) sharedMeasurer = createCaptionMeasurer()
+  return sharedMeasurer
+}
+
+/**
+ * A burned-in subtitle. The lines are wrapped by the shared caption layout
+ * against a real measureText - the same algorithm and face the export rasterizes
+ * with - so what the user reads is what the file carries (tech debt D27).
+ */
+export function CaptionOverlay({ caption: c, canvasW, canvasH }: {
+  caption: Caption
+  canvasW: number
+  canvasH: number
+}) {
+  const clip = useMemo(
+    () => captionToTextClip(c, canvasW, canvasH, measurer()),
+    [c, canvasW, canvasH],
+  )
+  const side = ((1 - CAPTION_WIDTH_FRACTION) / 2) * 100
   return (
     <div
       className="absolute pointer-events-none"
       style={{
-        bottom: '8%',
-        left: '10%',
-        right: '10%',
+        bottom: `${CAPTION_BOTTOM_FRACTION * 100}%`,
+        left: `${side}%`,
+        right: `${side}%`,
         textAlign: 'center',
-        fontSize: `${(32 / canvasH) * 100}cqh`,
-        color: '#ffffff',
-        fontFamily: 'Arial, sans-serif',
+        fontSize: `${(CAPTION_FONT_PX / canvasH) * 100}cqh`,
+        color: clip.fontColor,
+        fontFamily: clip.fontFamily,
         fontWeight: 'bold',
-        textShadow: '0 1px 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.7)',
-        WebkitTextStroke: '1px rgba(0,0,0,0.6)',
+        textShadow: `0 ${clip.shadowY}px ${clip.shadowBlur}px ${clip.shadowColor}`,
+        WebkitTextStroke: `${clip.strokeWidth}px ${clip.strokeColor}`,
         userSelect: 'none',
-        whiteSpace: 'pre-wrap',
-        lineHeight: 1.3,
+        // pre, not pre-wrap: the lines are already wrapped against the same
+        // measure the export uses. Letting CSS wrap again would put the preview's
+        // line breaks back in charge and break the agreement.
+        whiteSpace: 'pre',
+        lineHeight: CAPTION_LINE_HEIGHT,
       }}
     >
-      {c.text}
+      {clip.text}
     </div>
   )
 }

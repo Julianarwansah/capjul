@@ -357,7 +357,7 @@ export function PreviewPanel() {
           {/* Caption overlays */}
           {project.captions
             .filter(c => currentTime >= c.startTime && currentTime <= c.endTime)
-            .map(c => <CaptionOverlay key={c.id} caption={c} canvasH={canvasH} />)}
+            .map(c => <CaptionOverlay key={c.id} caption={c} canvasW={canvasW} canvasH={canvasH} />)}
 
           {/* CSS-only effects: vignette, grain, letterbox */}
           {activeClip && <EffectOverlays effects={activeClip.effects ?? []} />}

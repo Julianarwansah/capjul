@@ -6,6 +6,7 @@ import { applyChromaKey, parseChromaColor } from './chroma-key'
 import { hasTransitionClip, poseBlurPx, poseClipRect, transitionPose, type TransitionClipPose } from './transition-pose'
 import { VIGNETTE_RADIUS_FRACTIONS, letterboxFraction, vignetteStops } from './overlay-effects'
 import { rasterizeTextCentred, stickerPlacement, loadSvgImage } from './text-rasterizer'
+import { captionToTextClip, createCaptionMeasurer } from './caption-layout'
 import { stickerSvg } from './sticker-svgs'
 import { clipAnim } from './text-animation'
 import type { MediaFile } from './project-schema'
@@ -80,6 +81,10 @@ export interface SceneSources {
   images: Map<string, HTMLImageElement>
   textRasters: Map<string, HTMLCanvasElement>
   stickers: Map<string, HTMLImageElement>
+  /** Rasterized captions with the vertical centre that anchors each box's bottom
+   *  edge. Wrapped and rasterized by prepareScene, where a real measureText
+   *  exists; a test supplies its own rasters. */
+  captions: Map<string, { raster: HTMLCanvasElement; y: number }>
   /**
    * Renders a chroma-keyed copy of a media element's current frame, or null when
    * keying is unavailable. prepareScene supplies the real pixel pass; a test can
@@ -357,6 +362,20 @@ export function drawSceneFrame(
   )
   if (base && base.effects.length > 0) drawOverlayEffects(ctx, scene, base.effects)
 
+  // Captions paint above everything, including overlay effects, matching the
+  // preview where CaptionOverlay sits over the media and effect layers.
+  for (const caption of scene.captions) {
+    if (t < caption.start || t >= caption.end) continue
+    const entry = sources.captions.get(caption.id)
+    if (!entry) continue
+    ctx.save()
+    ctx.filter = 'none'
+    ctx.globalAlpha = 1
+    ctx.translate(scene.width / 2, entry.y * scene.height)
+    ctx.drawImage(entry.raster, -entry.raster.width / 2, -entry.raster.height / 2)
+    ctx.restore()
+  }
+
   ctx.restore()
 }
 
@@ -425,7 +444,20 @@ export async function prepareScene(
     return canvas
   }
 
-  const sources: SceneSources = { videos, images, textRasters: textCanvases, stickers, keyedFrame }
+  // Captions are wrapped and rasterized here, where a real measureText exists,
+  // with the same wrap algorithm and font string the preview wraps with - so the
+  // line breaks a subtitle shows are the line breaks it exports (D27).
+  const measurer = createCaptionMeasurer()
+  const captions = new Map<string, { raster: HTMLCanvasElement; y: number }>()
+  for (const c of scene.captions) {
+    const asClip = captionToTextClip(
+      { id: c.id, startTime: c.start, endTime: c.end, text: c.text },
+      scene.width, scene.height, measurer,
+    )
+    captions.set(c.id, { raster: rasterizeTextCentred(asClip), y: asClip.y })
+  }
+
+  const sources: SceneSources = { videos, images, textRasters: textCanvases, stickers, captions, keyedFrame }
 
   function drawFrame(ctx: CanvasRenderingContext2D, t: number) {
     drawSceneFrame(ctx, scene, sources, t)

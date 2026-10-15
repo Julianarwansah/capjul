@@ -4,6 +4,7 @@ import { X, Download, CheckCircle } from 'lucide-react'
 import { useEditorStore } from '../store/editorStore'
 import { compileProject } from '../shared/render-plan'
 import { rasterizeStickerClip, rasterizeTextClip } from '../shared/text-rasterizer'
+import { captionToTextClip, createCaptionMeasurer } from '../shared/caption-layout'
 import { compileScene } from '../shared/scene'
 import { prepareScene, type PreparedScene } from '../shared/compositor'
 import { pumpPrepared } from '../shared/export-pump'
@@ -184,6 +185,20 @@ export function ExportDialog() {
         end: s.startTime + s.duration,
       })
       overlayImages.push(png)
+    }
+    // Captions ride the same overlay-PNG path as text, above it: this engine has
+    // no drawtext, and the raster already carries the shared wrap and anchor.
+    const measurer = createCaptionMeasurer()
+    for (const c of project.captions) {
+      if (c.endTime <= c.startTime) continue
+      const asClip = captionToTextClip(c, plan.width, plan.height, measurer)
+      plan.overlays.push({
+        png: '',
+        z: 3000 + plan.overlays.length,
+        start: c.startTime,
+        end: c.endTime,
+      })
+      overlayImages.push(rasterizeTextClip(asClip, plan.width, plan.height))
     }
 
     const exported = await api.exportVideo({ plan, overlayImages })

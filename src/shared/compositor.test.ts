@@ -87,6 +87,7 @@ function sourcesFor(p: Project): SceneSources {
     images: new Map(p.media.filter(m => m.type === 'image').map(m => [m.id, fakeImage(m.id)])),
     textRasters: new Map(),
     stickers: new Map(),
+    captions: new Map(),
   }
 }
 
@@ -343,5 +344,57 @@ describe('drawSceneFrame chroma key', () => {
     drawSceneFrame(ctx, compileScene(p), sources, 1)
     expect(asked).toBe(0)
     expect(log.filter(l => l.startsWith('drawImage'))).toEqual(['drawImage(m1,-640,-360,1280,720)'])
+  })
+})
+
+describe('drawSceneFrame captions', () => {
+  const raster = (name: string, w = 200, h = 50) =>
+    ({ __name: name, width: w, height: h }) as unknown as HTMLCanvasElement
+  const withCaption = (over: Partial<Project> = {}) =>
+    project({ captions: [{ id: 'cap1', startTime: 1, endTime: 3, text: 'hi' }], ...over })
+
+  it('draws an active caption centred horizontally at its anchor', () => {
+    const p = withCaption()
+    const sources = sourcesFor(p)
+    sources.captions.set('cap1', { raster: raster('cap1'), y: 0.8 })
+    const { ctx, log } = mockCtx()
+    drawSceneFrame(ctx, compileScene(p), sources, 2)
+    expect(log).toContain('translate(640,576)')
+    expect(log).toContain('drawImage(cap1,-100,-25)')
+  })
+
+  it('draws nothing for a caption outside its window', () => {
+    const p = withCaption()
+    const sources = sourcesFor(p)
+    sources.captions.set('cap1', { raster: raster('cap1'), y: 0.8 })
+    const { ctx, log } = mockCtx()
+    drawSceneFrame(ctx, compileScene(p), sources, 4)
+    expect(log.filter(l => l.includes('cap1'))).toEqual([])
+  })
+
+  it('draws captions above overlay effects, so subtitles sit on top', () => {
+    const p = withCaption({
+      clips: [clip({ effects: [{ id: 'letterbox', intensity: 1 }] })],
+    })
+    const sources = sourcesFor(p)
+    sources.captions.set('cap1', { raster: raster('cap1'), y: 0.8 })
+    const { ctx, log } = mockCtx()
+    drawSceneFrame(ctx, compileScene(p), sources, 2)
+    const bars = log.findIndex(l => l === 'fillRect(0,0,1280,86.4)')
+    const caption = log.findIndex(l => l.startsWith('drawImage(cap1'))
+    expect(bars).toBeGreaterThan(-1)
+    expect(caption).toBeGreaterThan(bars)
+  })
+
+  it('skips a caption whose raster is missing rather than throwing', () => {
+    const p = withCaption()
+    const { ctx, log } = mockCtx()
+    drawSceneFrame(ctx, compileScene(p), sourcesFor(p), 2)
+    expect(log.filter(l => l.includes('cap1'))).toEqual([])
+  })
+
+  it('drops a caption whose window is inverted at compile time', () => {
+    const p = project({ captions: [{ id: 'bad', startTime: 5, endTime: 2, text: 'x' }] })
+    expect(compileScene(p).captions).toEqual([])
   })
 })

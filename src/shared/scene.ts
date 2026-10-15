@@ -78,6 +78,7 @@ export interface Scene {
   /** Blends straddling a cut, resolved to clip ids so the compositor can find
    *  both layers. Empty when the project has no transitions. */
   transitions: SceneTransition[]
+  captions: SceneCaption[]
 }
 
 export interface SceneTransition {
@@ -87,6 +88,15 @@ export interface SceneTransition {
   /** Timeline time where A ends and B begins; the blend straddles it. */
   boundary: number
   duration: number
+}
+
+/** A subtitle to burn in. Wrapping happens per renderer, with a real measureText,
+ *  so the line breaks come from one algorithm and one metric source (D27). */
+export interface SceneCaption {
+  id: string
+  start: number
+  end: number
+  text: string
 }
 
 export function compileScene(project: Project): Scene {
@@ -134,6 +144,9 @@ export function compileScene(project: Project): Scene {
       boundary: r.boundary,
       duration: r.transition.duration,
     })),
+    captions: project.captions
+      .filter(c => c.endTime > c.startTime)
+      .map(c => ({ id: c.id, start: c.startTime, end: c.endTime, text: c.text })),
   }
 }
 
