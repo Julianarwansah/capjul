@@ -100,9 +100,30 @@ export function compileScene(project: Project): Scene {
   }
 }
 
+/**
+ * The one source-time formula. Every consumer resolves a clip's source position
+ * through here, because the preview used to compute `t - start + mediaStart` by
+ * hand in three places and drop the speed factor each time, while the compositor
+ * multiplied by it - so a clip set to 2x played at normal speed in the preview
+ * and exported at double speed (tech debt D22).
+ */
+function sourceTimeAt(mediaStart: number, start: number, speed: number, t: number): number {
+  return mediaStart + (t - start) * speed
+}
+
 /** Source time a video layer must show at timeline time t. */
 export function mediaTimeAt(layer: SceneVideoLayer, t: number): number {
-  return layer.mediaStart + (t - layer.start) * layer.speed
+  return sourceTimeAt(layer.mediaStart, layer.start, layer.speed, t)
+}
+
+/**
+ * Source time a clip must show at timeline time t, before it has been compiled
+ * into a layer. This is what the preview seeks with, and `compileScene` builds
+ * `SceneVideoLayer.speed` with the same `|| 1` guard, so the two agree for every
+ * clip including a degenerate speed of 0.
+ */
+export function clipMediaTimeAt(clip: Clip, t: number): number {
+  return sourceTimeAt(clip.mediaStart, clip.startTime, clip.speed || 1, t)
 }
 
 /** The pose a layer draws with at timeline time t. The compositor and the

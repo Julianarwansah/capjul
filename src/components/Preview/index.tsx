@@ -10,6 +10,7 @@ import { buildCssFilter, colorAdjustFactors } from '../../shared/color-adjust'
 import { buildEffectsCssFilter } from '../../shared/effects'
 import { findActiveTransition, transitionStyles } from '../../shared/transitions'
 import { activePaintAt, type PaintItem } from '../../shared/paint-order'
+import { clipMediaTimeAt } from '../../shared/scene'
 import { IncomingMediaLayer, MediaLayer } from './MediaLayers'
 import { useAudioClips } from './useAudioClips'
 import { useChromaKey } from './useChromaKey'
@@ -106,22 +107,33 @@ export function PreviewPanel() {
 
   const activeTransition = findActiveTransition(project, currentTime)
 
-  // Sync video with timeline
+  // Sync video with timeline. The seek and the playback rate both come from the
+  // shared source-time formula, so a clip set to 2x advances its source at 2x
+  // instead of playing at natural rate and being dragged forward by the next seek
+  // correction (tech debt D22).
+  //
+  // The rate is the clip's own speed and deliberately not multiplied by the
+  // transport's playbackSpeed: useAudioClips sets audio elements to clip.speed
+  // alone, so scaling video by the transport as well would desync the two while
+  // the transport is not at 1x. Transport speed still works by seek correction,
+  // as it did before.
   useEffect(() => {
     const video = videoRef.current
-    if (!video || !activeMedia) return
-    const clipTime = currentTime - (activeClip?.startTime ?? 0) + (activeClip?.mediaStart ?? 0)
+    if (!video || !activeClip) return
+    video.playbackRate = activeClip.speed || 1
+    const clipTime = clipMediaTimeAt(activeClip, currentTime)
     if (Math.abs(video.currentTime - clipTime) > 0.1) {
       video.currentTime = clipTime
     }
-  }, [currentTime, activeMedia, activeClip?.startTime, activeClip?.mediaStart])
+  }, [currentTime, activeClip])
 
   // Sync overlay video clips (multi-layer)
   useEffect(() => {
     for (const item of overlayItems) {
       const el = overlayVideos.current.get(item.clip.id)
       if (!el) continue
-      const clipTime = currentTime - item.clip.startTime + item.clip.mediaStart
+      el.playbackRate = item.clip.speed || 1
+      const clipTime = clipMediaTimeAt(item.clip, currentTime)
       if (Math.abs(el.currentTime - clipTime) > 0.1) el.currentTime = Math.max(0, clipTime)
       if (isPlaying) el.play().catch(() => {})
       else el.pause()
@@ -133,7 +145,8 @@ export function PreviewPanel() {
     const video = videoRefB.current
     if (!video || !activeTransition) return
     const { clipB } = activeTransition
-    const clipTime = currentTime - clipB.startTime + clipB.mediaStart
+    video.playbackRate = clipB.speed || 1
+    const clipTime = clipMediaTimeAt(clipB, currentTime)
     if (Math.abs(video.currentTime - clipTime) > 0.1) {
       video.currentTime = Math.max(0, clipTime)
     }

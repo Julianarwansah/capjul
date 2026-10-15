@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clipTransformAt, compileScene, isActiveAt, mediaTimeAt, stickerTransformAt, textTransformAt, transformAt } from './scene'
+import { clipMediaTimeAt, clipTransformAt, compileScene, isActiveAt, mediaTimeAt, stickerTransformAt, textTransformAt, transformAt } from './scene'
 import type { Clip, Keyframe, Project, StickerClip, TextClip } from './project-schema'
 
 function clip(over: Partial<Clip> = {}): Clip {
@@ -109,6 +109,46 @@ describe('timing', () => {
     expect(isActiveAt(layer, 1)).toBe(true)
     expect(isActiveAt(layer, 2.99)).toBe(true)
     expect(isActiveAt(layer, 3)).toBe(false)
+  })
+})
+
+// The preview seeks with clipMediaTimeAt and the compositor with mediaTimeAt. If
+// the two ever stop agreeing, a clip plays at one speed on screen and exports at
+// another - which is exactly what happened before they shared one formula (D22).
+describe('clipMediaTimeAt', () => {
+  it('maps timeline time through speed into source time', () => {
+    const c = clip({ startTime: 2, mediaStart: 10, speed: 2 })
+    expect(clipMediaTimeAt(c, 3)).toBe(12)
+  })
+
+  it('honours a trim offset at speed 1', () => {
+    const c = clip({ startTime: 5, mediaStart: 30, speed: 1 })
+    expect(clipMediaTimeAt(c, 5)).toBe(30)
+    expect(clipMediaTimeAt(c, 6.5)).toBe(31.5)
+  })
+
+  it('runs backwards for a negative speed rather than throwing', () => {
+    const c = clip({ startTime: 0, mediaStart: 10, speed: -1 })
+    expect(clipMediaTimeAt(c, 4)).toBe(6)
+  })
+
+  it('treats a degenerate speed of 0 as 1, matching compileScene', () => {
+    const c = clip({ startTime: 0, mediaStart: 10, speed: 0 })
+    expect(clipMediaTimeAt(c, 4)).toBe(14)
+  })
+
+  it('agrees with the layer compileScene builds from the same clip', () => {
+    for (const speed of [0, 0.25, 0.5, 1, 1.5, 2, 4, -1]) {
+      const c = clip({ startTime: 2, mediaStart: 10, speed })
+      const p = project({ clips: [c] })
+      const layer = compileScene(p).layers[0]
+      expect(layer.kind, `speed ${speed}`).toBe('video')
+      if (layer.kind !== 'video') continue
+      for (const t of [2, 2.5, 3, 4.9, 5]) {
+        expect(clipMediaTimeAt(c, t), `speed ${speed} at t=${t}`)
+          .toBe(mediaTimeAt(layer, t))
+      }
+    }
   })
 })
 

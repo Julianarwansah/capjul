@@ -73,29 +73,6 @@ Owner: next engineering slot; **Julian** if the answer is to cut transitions fro
 the UI instead. Cutting is roughly an hour and would close the same broken
 promise from the other direction.
 
-### D22 — Clip speed is applied on export and ignored in the preview
-`mediaTimeAt` in `scene.ts` computes `mediaStart + (t - start) * speed`, and the
-compositor seeks every video layer through it. The preview does not multiply by
-speed anywhere: both the base layer's sync effect and the overlay sync compute
-`currentTime - clip.startTime + clip.mediaStart`. `clip.speed` is only ever
-applied to *audio* clips, in `useAudioClips`, as `playbackRate`.
-
-So a video clip set to 2× plays at normal speed in the preview and exports at
-double speed. The speed presets in `ClipInspector` write the field and the
-slider appears to do nothing until the export finishes.
-Impact: high, and the opposite direction from most preview/export drift — here
-the export is the one that is right and the preview is lying. Found by reading
-the two sync effects against `mediaTimeAt` while migrating the preview to the
-shared paint order (D16); no user report.
-Effort: small for the seek math — both effects need the `* speed` factor, and
-`shared/scene.ts` already exports the correct formula as `mediaTimeAt`, so the
-fix is to call it rather than reimplement it. The awkward part is playback: the
-base video element plays at its natural rate while `currentTime` advances by
-wall clock, so a 2× clip also needs `video.playbackRate = speed` or it will
-drift from the playhead between sync corrections. Needs a real media file to
-verify, so it cannot be checked in a plain browser.
-Owner: next engineering slot.
-
 ### D23 — Clip effects and chroma key are rendered by the preview only
 `Preview/index.tsx` builds each media layer's CSS filter from three parts:
 `clip.filter` (the preset), `buildCssFilter(colorAdjustFactors(clip))` (the six
@@ -664,3 +641,44 @@ Kept here for traceability; each has a commit.
   renderer being literally the same component for base and overlay, and by
   reading, not by a rendered frame. Confirming them needs `npm run electron:dev`
   and a second video track.
+- Clip speed is honoured in the preview (was D22). Three separate effects — base
+  layer, overlays, transition incoming — each hand-wrote
+  `currentTime - startTime + mediaStart` and each dropped the speed factor, while
+  `mediaTimeAt` multiplied by it. A clip set to 2× played at normal speed on
+  screen and exported at double speed. `scene.ts` now has one private
+  `sourceTimeAt` formula behind two typed entry points, `mediaTimeAt` for compiled
+  layers and `clipMediaTimeAt` for raw clips, and all three effects call it. Both
+  apply the same `|| 1` guard `compileScene` uses, so a degenerate speed of 0
+  resolves identically on the two sides rather than dividing the preview from the
+  export in a new way. Each effect also sets `playbackRate`, without which the
+  element plays at its natural rate and gets dragged forward by the next seek
+  correction.
+- **One thing deliberately not fixed alongside it.** `playbackRate` is the clip's
+  own speed and is *not* multiplied by the transport's `playbackSpeed`, even
+  though the physically correct rate is the product. `useAudioClips` sets audio
+  elements to `clip.speed` alone, so scaling video by the transport as well would
+  desync audio from video whenever the transport is not at 1×. Transport speed
+  therefore still works by seek correction, exactly as before. Making both sides
+  rate-correct under transport speed is a separate change with its own A/V risk.
+- **D22's own effort estimate was wrong, and the correction is worth keeping.**
+  It claimed the fix "needs a real media file to verify, so it cannot be checked
+  in a plain browser." It can. Vite's dev server serves source modules by URL, so
+  `await import('/src/store/editorStore.ts')` from the page returns the *same
+  module instance* the UI rendered from, and `useEditorStore.getState()` is then
+  a full handle on the real store — no dialog, no file, no UI clicking. Combined
+  with a setter spy on `HTMLMediaElement.prototype.currentTime`, the value a sync
+  effect assigns is observable even though `media://` never resolves and the
+  element has no media. 16 checks: five speeds on the base layer including a trim
+  offset, two on an overlay, and the playback rate for each. Against a
+  `git worktree` at the pre-fix commit the same run scored 3/16 — speed 2 at t=2
+  sought to 2 instead of 4, speed 4 at t=1.5 sought to 1.5 instead of 6, one case
+  did not seek at all because the wrong value happened to equal the element's
+  existing `currentTime`, and `playbackRate` was never assigned. The two speed-1
+  controls passed in both runs, which is the evidence that ordinary playback did
+  not move.
+  The technique is now the default for preview questions that look like they need
+  Electron. One trap found the hard way: the first spy was installed on
+  `HTMLVideoElement.prototype`, where neither `currentTime` nor `playbackRate`
+  lives, so every case returned `null` — indistinguishable from a fix that does
+  nothing. Any spy like this needs an explicit "did the spy install" assertion,
+  or a broken instrument reads as a broken feature.
