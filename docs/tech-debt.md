@@ -634,13 +634,38 @@ Kept here for traceability; each has a commit.
   and asserts `activePaintAt` and `compileScene` return the same sequence of
   layer kinds. That assertion is the point of the whole change: before it, the
   two sides could disagree about what is on screen with nothing failing.
-- **Not verified in a browser:** overlay *video* geometry with real media. The
-  dev server in a plain browser cannot resolve the `media://` protocol, so no
-  media clip can be placed on a track there — only text and stickers, which need
-  no file. The four geometry fixes above are therefore backed by the shared
-  renderer being literally the same component for base and overlay, and by
-  reading, not by a rendered frame. Confirming them needs `npm run electron:dev`
-  and a second video track.
+- **The four overlay divergences above were committed as "not browser-verified",
+  and that caveat was wrong.** The entry claimed `media://` not resolving in a
+  plain browser made them uncheckable without Electron. It does not: the elements
+  carry their styles whether or not the media loads, and the technique recorded
+  under D22 below — importing the app's own modules over Vite's dev URL to get a
+  handle on the real store — supplies the project without a file dialog. Re-run
+  properly, with the expected transform computed in-page by the same
+  `poseTransformCss`/`clipTransformAt` the compositor uses rather than restated in
+  the test: **15/15 on the fixed tree, 3/15 against a `git worktree` at the
+  pre-D16 commit.** The two baseline passes are the controls — the base layer's
+  transform, which did not change, and the graded overlay merely existing.
+- **Measuring found a worse version of the geometry bug than reading had.** The
+  old overlay transform was `translate(-50%, -50%) rotate(15deg)` — it carried no
+  scale term at all. `scaleX` survived only by being folded into
+  `width: ${scaleX * 40}%`, and `scaleY` was dropped completely, the height
+  coming from `height: auto` with `aspectRatio: 16/9`. So a non-uniform scale on
+  any clip above the first track was not merely mis-sized in the preview, it was
+  unrepresentable there, while the export applied both axes. The fixed overlay
+  now reports `translate(20%, -10%) rotate(15deg) scale(1.5, 0.8)` for the same
+  clip, byte-identical to the shared formula's output. The old path also set
+  `zIndex: 3/4/5` explicitly, which is what made DOM order insufficient on its
+  own; grading on an overlay reported an empty filter string.
+- **Two instrumentation bugs found on the way, both of which would have produced
+  a confidently wrong result.** The canvas selector was
+  `[style*="aspect-ratio"]`, which matches a `MediaPanel` thumbnail as well as the
+  preview canvas and picks it first in document order once the project has media;
+  that run reported one painted layer and a base transform of `""`, i.e. it
+  measured a thumbnail. The prototype spy was installed on the wrong interface,
+  described under D22 below. Both scripts now assert that their instrument
+  installed and that the element under test is the one intended, and exit non-zero
+  rather than reporting a wall of failures. A check that can silently measure the
+  wrong thing is worse than no check, because it gets believed.
 - Clip speed is honoured in the preview (was D22). Three separate effects — base
   layer, overlays, transition incoming — each hand-wrote
   `currentTime - startTime + mediaStart` and each dropped the speed factor, while
