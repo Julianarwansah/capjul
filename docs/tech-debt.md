@@ -1056,3 +1056,26 @@ Kept here for traceability; each has a commit.
   mock-context tests on the draw; 8 browser checks that the preview's DOM carries
   explicit breaks equal to `wrapLines` against a real `measureText`; and a
   rendered PNG of the export draw path showing the wrapped, anchored caption.
+- Optional loudness normalization on the mixed audio, in both engines at once
+  (new feature). A checkbox in the export dialog chains
+  `loudnorm=I=-14:TP=-1.5:LRA=11` into the `amix` that already ends every audio
+  graph, under the same `[aout]` label, so no `-map` anywhere knows the flag
+  exists and both engines inherit it from the one function. `amix` already ran
+  with `normalize=0`, without which its own level scaling would have fought the
+  loudness pass instead of feeding it an honest mix. Single-pass, so dynamic
+  rather than sample-accurate; the checkbox says so on its face. The schema field
+  defaults to false so older payloads still parse over IPC, and the flag-off mix
+  string is asserted byte-identical to what every earlier export produced -
+  changing it would retune existing projects behind a checkbox nobody ticked.
+- **A new class of verification arrived with it: the emitted ffmpeg command is
+  executed.** `electron/render-plan-ffmpeg.test.ts` builds a one-second fixture
+  with picture and tone, then runs the exact argument list `buildRenderArgs`
+  emits through the real binary - plain and normalized - asserting exit 0 and a
+  non-empty output. A filtergraph is text, and text can be wrong in ways no
+  string assertion sees: a filter this ffmpeg does not have, an option it no
+  longer accepts, a label consumed twice. The test lives under `electron/`
+  because it needs node types, which only that tsconfig project carries, and
+  `vitest.config.ts` gained one include glob for it; it skips when ffmpeg is
+  absent, which is the only environment where the app could not export anyway.
+  Any future change to the video or audio graph inherits this check for free,
+  which is the point of putting it in now rather than when a bad filter ships.
