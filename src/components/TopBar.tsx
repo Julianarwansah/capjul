@@ -2,7 +2,7 @@ import { useState } from 'react'
 import {
   Save, Download, Undo2, Redo2, Settings,
   FilePlus, FolderOpen, Scissors, Copy, Trash2,
-  ZoomIn, ZoomOut,
+  ZoomIn, ZoomOut, Keyboard,
 } from 'lucide-react'
 import { selectHasSelection, useEditorStore } from '../store/editorStore'
 
@@ -11,6 +11,7 @@ export function TopBar() {
     project, setProjectName, undo, redo, history, historyIndex,
     setShowExportDialog, setShowProjectSettings, newProject,
     zoom, setZoom, splitAtPlayhead, duplicateSelection, deleteSelection,
+    showShortcuts, setShowShortcuts,
   } = useEditorStore()
   const hasSelection = useEditorStore(selectHasSelection)
 
@@ -153,6 +154,11 @@ export function TopBar() {
         className="flex items-center gap-2"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
+        <TopBtn
+          icon={<Keyboard size={15} />}
+          title="Pintasan keyboard (?)"
+          onClick={() => setShowShortcuts(!showShortcuts)}
+        />
         <TopBtn icon={<Settings size={15} />} title="Project Settings" onClick={() => setShowProjectSettings(true)} />
         <button
           className="btn-primary flex items-center gap-1.5 text-xs h-8 px-4"

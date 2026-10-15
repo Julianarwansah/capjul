@@ -32,6 +32,7 @@ export interface EditorState {
   showRightPanel: boolean
   showExportDialog: boolean
   showProjectSettings: boolean
+  showShortcuts: boolean
   isExporting: boolean
   exportProgress: number
   // History
@@ -112,6 +113,7 @@ export interface EditorState {
 
   setShowExportDialog: (v: boolean) => void
   setShowProjectSettings: (v: boolean) => void
+  setShowShortcuts: (v: boolean) => void
   setIsExporting: (v: boolean) => void
   setExportProgress: (v: number) => void
 
@@ -144,6 +146,7 @@ export const useEditorStore = create<EditorState>()(
     showRightPanel: true,
     showExportDialog: false,
     showProjectSettings: false,
+    showShortcuts: false,
     isExporting: false,
     exportProgress: 0,
     history: [initialProject],
@@ -413,6 +416,7 @@ export const useEditorStore = create<EditorState>()(
 
     setShowExportDialog: (v) => set({ showExportDialog: v }),
     setShowProjectSettings: (v) => set({ showProjectSettings: v }),
+    setShowShortcuts: (v) => set({ showShortcuts: v }),
     setIsExporting: (v) => set({ isExporting: v }),
     setExportProgress: (v) => set({ exportProgress: v }),
 

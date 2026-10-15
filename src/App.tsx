@@ -6,9 +6,11 @@ import { RightPanel } from './components/RightPanel'
 import { Timeline } from './components/Timeline'
 import { ExportDialog } from './components/ExportDialog'
 import { ProjectSettings } from './components/ProjectSettings'
+import { ShortcutsOverlay } from './components/ShortcutsOverlay'
 import { useEditorStore } from './store/editorStore'
 import { stepFrames } from './shared/frame-time'
 import { neighborMarker } from './shared/markers'
+import { findShortcut, type ShortcutEntry } from './shared/shortcuts'
 import type { ElectronApi, RecoveryInfo } from './shared/ipc-contract'
 
 declare global {
@@ -90,13 +92,20 @@ export default function App() {
     toggleMarker,
   } = useEditorStore()
 
-  // Keyboard shortcuts. This is the only place global keys are bound; the
-  // timeline keeps just copy/paste, which needs its own clipboard state.
+  // Keyboard shortcuts. This is the only place global keys are dispatched; the
+  // timeline keeps just paste, which needs its own clipboard state. What each key
+  // *means* - its matcher and its label - lives in shared/shortcuts.ts, which the
+  // shortcuts overlay renders from, so a binding cannot be live here and missing
+  // there. The switch is exhaustive over the table's ids on purpose: adding a row
+  // to the table without handling it is a compile error.
   const handleKeyDown = useCallback(async (e: KeyboardEvent) => {
     const tag = (e.target as HTMLElement).tagName
     if (tag === 'INPUT' || tag === 'TEXTAREA') return
 
-    const mod = e.metaKey || e.ctrlKey
+    const def = findShortcut(e)
+    // Timeline-scoped rows (paste) are documented in the table but dispatched by
+    // the component that owns their state, so they stop here.
+    if (!def || def.scope !== 'global') return
 
     // Stepping in whole frames rather than adding 1/fps: repeated addition
     // drifts (thirty steps at 30fps land 1.11e-16 short of a second), and the
@@ -107,78 +116,65 @@ export default function App() {
     const second = Math.round(fps)
     const fiveSeconds = Math.round(5 * fps)
 
-    if (e.code === 'Space') {
-      e.preventDefault()
-      setIsPlaying(!isPlaying)
-    } else if (mod && e.code === 'KeyZ') {
-      e.preventDefault()
-      if (e.shiftKey) redo()
-      else undo()
-    } else if (e.code === 'Delete' || e.code === 'Backspace') {
-      e.preventDefault()
-      deleteSelection()
-    } else if (e.code === 'KeyS' && mod) {
-      e.preventDefault()
-      const saved = await window.electronAPI?.saveProject(project)
-      if (saved && !saved.ok && saved.error.code !== 'E_CANCELLED') {
-        alert(`Save failed: ${saved.error.message}`)
-      }
-    } else if (e.code === 'KeyB') {
-      // Split at playhead. Bound with and without the modifier: plain B was the
-      // original binding, Cmd+B is what CapCut users reach for.
-      e.preventDefault()
-      splitAtPlayhead()
-    } else if (mod && e.code === 'KeyD') {
-      e.preventDefault()
-      duplicateSelection()
-    } else if (e.code === 'ArrowLeft') {
-      e.preventDefault()
-      seekBy(e.shiftKey ? -fiveSeconds : -1)
-    } else if (e.code === 'ArrowRight') {
-      e.preventDefault()
-      seekBy(e.shiftKey ? fiveSeconds : 1)
-    } else if (e.code === 'Home') {
-      setCurrentTime(0)
-    } else if (e.code === 'End') {
-      setCurrentTime(project.duration)
-    } else if (e.code === 'Equal' && mod) {
-      e.preventDefault()
-      useEditorStore.getState().setZoom(useEditorStore.getState().zoom + 20)
-    } else if (e.code === 'Minus' && mod) {
-      e.preventDefault()
-      useEditorStore.getState().setZoom(useEditorStore.getState().zoom - 20)
-    } else if (e.code === 'KeyJ') {
-      e.preventDefault()
-      seekBy(e.shiftKey ? -fiveSeconds : -second)
-    } else if (e.code === 'KeyK') {
-      e.preventDefault()
-      setIsPlaying(false)
-    } else if (e.code === 'KeyL') {
-      e.preventDefault()
-      seekBy(e.shiftKey ? fiveSeconds : second)
-    } else if (e.code === 'Comma') {
-      // Previous frame
-      e.preventDefault()
-      seekBy(-1)
-    } else if (e.code === 'Period') {
-      // Next frame
-      e.preventDefault()
-      seekBy(1)
-    } else if (e.code === 'KeyM' && !mod) {
-      // Toggle a marker on the playhead's frame. One binding both adds and
-      // removes, so undoing a marker never means aiming at a 7px flag. Cmd is
-      // excluded because Cmd+M minimises the window on macOS.
-      e.preventDefault()
-      toggleMarker(currentTime)
-    } else if (e.code === 'BracketLeft' || e.code === 'BracketRight') {
-      // Jump to the previous or next marker. Swallowed only when there is one to
-      // jump to, so the keys stay free for anything else in an unmarked project.
-      const target = neighborMarker(
-        project.markers, currentTime, e.code === 'BracketRight' ? 1 : -1,
-      )
-      if (target) {
+    switch (def.id) {
+      case 'play-pause': e.preventDefault(); setIsPlaying(!isPlaying); break
+      case 'pause': e.preventDefault(); setIsPlaying(false); break
+      case 'undo': e.preventDefault(); undo(); break
+      case 'redo': e.preventDefault(); redo(); break
+      case 'delete-selection': e.preventDefault(); deleteSelection(); break
+      case 'save': {
         e.preventDefault()
-        setCurrentTime(target.time)
+        const saved = await window.electronAPI?.saveProject(project)
+        if (saved && !saved.ok && saved.error.code !== 'E_CANCELLED') {
+          alert(`Save failed: ${saved.error.message}`)
+        }
+        break
+      }
+      case 'split': e.preventDefault(); splitAtPlayhead(); break
+      case 'duplicate': e.preventDefault(); duplicateSelection(); break
+      case 'step-back-frame': e.preventDefault(); seekBy(-1); break
+      case 'step-fwd-frame': e.preventDefault(); seekBy(1); break
+      case 'step-back-5s': e.preventDefault(); seekBy(-fiveSeconds); break
+      case 'step-fwd-5s': e.preventDefault(); seekBy(fiveSeconds); break
+      case 'prev-frame': e.preventDefault(); seekBy(-1); break
+      case 'next-frame': e.preventDefault(); seekBy(1); break
+      case 'back-1s': e.preventDefault(); seekBy(-second); break
+      case 'back-5s': e.preventDefault(); seekBy(-fiveSeconds); break
+      case 'fwd-1s': e.preventDefault(); seekBy(second); break
+      case 'fwd-5s': e.preventDefault(); seekBy(fiveSeconds); break
+      case 'home': setCurrentTime(0); break
+      case 'end': setCurrentTime(project.duration); break
+      case 'zoom-in':
+        e.preventDefault()
+        useEditorStore.getState().setZoom(useEditorStore.getState().zoom + 20)
+        break
+      case 'zoom-out':
+        e.preventDefault()
+        useEditorStore.getState().setZoom(useEditorStore.getState().zoom - 20)
+        break
+      case 'toggle-marker': e.preventDefault(); toggleMarker(currentTime); break
+      case 'prev-marker':
+      case 'next-marker': {
+        // Swallowed only when there is one to jump to, so the keys stay free for
+        // anything else in an unmarked project.
+        const target = neighborMarker(
+          project.markers, currentTime, def.id === 'next-marker' ? 1 : -1,
+        )
+        if (target) {
+          e.preventDefault()
+          setCurrentTime(target.time)
+        }
+        break
+      }
+      case 'shortcuts':
+        e.preventDefault()
+        useEditorStore.getState().setShowShortcuts(!useEditorStore.getState().showShortcuts)
+        break
+      default: {
+        // Exhaustiveness: a table entry with no case above is a compile error,
+        // which is the whole point of the literal id union.
+        const unhandled: never = def
+        throw new Error(`shortcut without a handler: ${(unhandled as ShortcutEntry).id}`)
       }
     }
   }, [
@@ -226,6 +222,7 @@ export default function App() {
       {/* Dialogs */}
       {showExportDialog && <ExportDialog />}
       {showProjectSettings && <ProjectSettings />}
+      <ShortcutsOverlay />
     </div>
   )
 }
