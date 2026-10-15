@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Clipboard, Copy, Scissors, Trash2 } from 'lucide-react'
+import { AudioLines, Clipboard, Copy, Scissors, Trash2 } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { copyClipAfter } from '../../shared/clip-factory'
 import type { Splittable } from '../../shared/clip-split'
@@ -69,6 +69,13 @@ export function useClipContextMenu() {
     if (!target) return []
     const { clipId, kind } = target
 
+    // `kind === 'video'` means "lives in the clips array", which includes image
+    // clips; only a clip whose media actually carries audio can give it up.
+    // Offering the action otherwise would put a dead row in the menu.
+    const targetClip = store().project.clips.find(c => c.id === clipId)
+    const targetMedia = targetClip && store().project.media.find(m => m.id === targetClip.mediaId)
+    const canDetachAudio = kind === 'video' && targetMedia?.type === 'video'
+
     function clipData() {
       const p = store().project
       if (kind === 'video') return p.clips.find(c => c.id === clipId)
@@ -122,6 +129,15 @@ export function useClipContextMenu() {
     entries.push(
       { separator: true as const },
       { label: 'Split di Playhead', icon: <Scissors size={12} />, onClick: doSplit },
+    )
+    if (canDetachAudio) {
+      entries.push({
+        label: 'Pisahkan audio',
+        icon: <AudioLines size={12} />,
+        onClick: () => store().detachAudio(clipId),
+      })
+    }
+    entries.push(
       { separator: true as const },
       { label: 'Hapus', icon: <Trash2 size={12} />, onClick: doDelete, danger: true },
       { label: 'Ripple Delete', icon: <Trash2 size={12} />, onClick: doRippleDelete, danger: true },

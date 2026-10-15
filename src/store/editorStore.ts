@@ -80,6 +80,10 @@ export interface EditorState {
   updateAudioClip: (id: string, changes: Partial<AudioClip>) => void
   removeAudioClip: (id: string) => void
 
+  /** Lifts a video clip's audio onto an audio track of its own and mutes the
+   *  source clip, so the two do not play the same audio twice. */
+  detachAudio: (clipId: string) => void
+
   addTransition: (t: Transition) => void
   removeTransition: (id: string) => void
 
@@ -327,6 +331,51 @@ export const useEditorStore = create<EditorState>()(
       true,
     ),
     removeAudioClip: (id) => get().mutate(p => ({ ...p, audioClips: p.audioClips.filter(c => c.id !== id) })),
+
+    detachAudio: (clipId) => {
+      const current = get().project
+      const clip = current.clips.find(c => c.id === clipId)
+      const media = clip && current.media.find(m => m.id === clip.mediaId)
+      // Image clips carry no audio and a missing clip is a stale menu; neither is
+      // an error, and guarding outside mutate() keeps a no-op off the undo stack.
+      if (!clip || !media || media.type !== 'video') return
+      get().mutate(p => {
+        const c = p.clips.find(x => x.id === clipId)
+        if (!c) return p
+        const audioTrack = p.tracks.find(t => t.type === 'audio')
+        // Built unconditionally so the id is stable and non-null either way;
+        // appended only when the project has no audio track to reuse.
+        const newTrack: Track = {
+          id: crypto.randomUUID(), type: 'audio', label: 'Audio',
+          muted: false, locked: false, height: 48,
+        }
+        const trackId = audioTrack?.id ?? newTrack.id
+        const audio: AudioClip = {
+          id: crypto.randomUUID(),
+          mediaId: c.mediaId,
+          trackId,
+          startTime: c.startTime,
+          duration: c.duration,
+          mediaStart: c.mediaStart,
+          mediaEnd: c.mediaEnd,
+          volume: c.volume,
+          muted: c.muted,
+          fadein: 0,
+          fadeout: 0,
+          speed: c.speed,
+          pitch: 0,
+          keyframes: [],
+        }
+        return {
+          ...p,
+          tracks: audioTrack ? p.tracks : [...p.tracks, newTrack],
+          audioClips: [...p.audioClips, audio],
+          // The source clip keeps its video and loses its voice, or the same
+          // audio would play twice from two places.
+          clips: p.clips.map(x => (x.id === clipId ? { ...x, muted: true } : x)),
+        }
+      })
+    },
 
     addTransition: (t) => get().mutate(p => ({ ...p, transitions: [...p.transitions, t] })),
     removeTransition: (id) => get().mutate(p => ({ ...p, transitions: p.transitions.filter(t => t.id !== id) })),

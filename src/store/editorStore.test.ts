@@ -607,3 +607,69 @@ describe('moveTrack', () => {
     expect(order()).toEqual(['mid', 'high', 'low'])
   })
 })
+
+describe('detachAudio', () => {
+  function videoProject() {
+    s().loadProject({
+      ...s().project,
+      media: [makeMedia()],
+      clips: [makeClip({ id: 'v1', startTime: 1, duration: 4, mediaStart: 2, mediaEnd: 6, volume: 0.5 })],
+    })
+  }
+
+  it('lifts the audio onto an audio track mirroring the clip window', () => {
+    videoProject()
+    s().detachAudio('v1')
+    const a = s().project.audioClips[0]
+    expect(a).toMatchObject({
+      mediaId: 'media-1', trackId: 'main-audio',
+      startTime: 1, duration: 4, mediaStart: 2, mediaEnd: 6,
+      volume: 0.5, speed: 1, muted: false,
+    })
+  })
+
+  it('mutes the source clip so the same audio does not play twice', () => {
+    videoProject()
+    s().detachAudio('v1')
+    expect(s().project.clips[0].muted).toBe(true)
+  })
+
+  it('keeps the source clip muted state it already had', () => {
+    videoProject()
+    s().updateClip('v1', { muted: true })
+    s().detachAudio('v1')
+    expect(s().project.audioClips[0].muted).toBe(true)
+  })
+
+  it('creates an audio track when the project has none', () => {
+    videoProject()
+    s().loadProject({
+      ...s().project,
+      tracks: s().project.tracks.filter(t => t.type !== 'audio'),
+    })
+    s().detachAudio('v1')
+    const track = s().project.tracks.find(t => t.id === s().project.audioClips[0].trackId)
+    expect(track?.type).toBe('audio')
+  })
+
+  it('does nothing for a clip whose media is not a video, and spends no undo step', () => {
+    videoProject()
+    s().loadProject({
+      ...s().project,
+      media: [makeMedia({ type: 'image' })],
+    })
+    const steps = s().history.length
+    s().detachAudio('v1')
+    s().detachAudio('no-such-clip')
+    expect(s().project.audioClips).toEqual([])
+    expect(s().history.length).toBe(steps)
+  })
+
+  it('is one undo step, restoring both halves together', () => {
+    videoProject()
+    s().detachAudio('v1')
+    s().undo()
+    expect(s().project.audioClips).toEqual([])
+    expect(s().project.clips[0].muted).toBe(false)
+  })
+})
