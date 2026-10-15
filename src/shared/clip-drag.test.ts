@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MIN_CLIP_SECONDS, draggedStartTime, draggedStartTimeSnapped, snappedTrimDxPx, trimChanges,
+  MIN_CLIP_SECONDS, captureMoveOrigins, draggedStartTime, draggedStartTimeSnapped,
+  movedStartTimes, snappedTrimDxPx, trimChanges,
 } from './clip-drag'
-import type { Project } from './project-schema'
+import type { Clip, Project } from './project-schema'
 
 // 100 px/s keeps every pixel delta a clean number of hundredths of a second.
 const PX = 100
@@ -197,3 +198,93 @@ describe('snappedTrimDxPx', () => {
     expect(trimChanges('right', clip, dx, PX)).toEqual({ duration: 5.5, mediaEnd: 8.5 })
   })
 })
+
+describe('group move', () => {
+  const track = (id: string, locked = false) =>
+    ({ id, type: 'video' as const, label: id, muted: false, locked, height: 64 })
+  const p = project({
+    tracks: [track('t0'), track('t1'), track('locked', true)],
+    clips: [
+      { ...clipFixture('a', 't0', 1), },
+      clipFixture('b', 't1', 5),
+      clipFixture('c', 'locked', 3),
+      clipFixture('d', 't0', 9),
+    ],
+  })
+  const selection = { clips: ['a', 'b'], texts: [], stickers: [], audios: [] }
+  const withLocked = { ...selection, clips: ['a', 'b', 'c'] }
+
+  it('captures the start times at mousedown, not during the drag', () => {
+    const origins = captureMoveOrigins(p, withLocked)
+    expect([...origins.clips.entries()]).toEqual([['a', 1], ['b', 5], ['c', 3]])
+  })
+
+  it('ignores selected ids that are not in the project', () => {
+    const origins = captureMoveOrigins(p, { ...selection, clips: ['a', 'ghost'] })
+    expect([...origins.clips.keys()]).toEqual(['a'])
+  })
+
+  it('applies one delta to every captured clip', () => {
+    const moved = movedStartTimes(p, captureMoveOrigins(p, selection), 2)
+    expect([...moved.clips.entries()]).toEqual([['a', 3], ['b', 7]])
+  })
+
+  it('clamps each clip at zero on its own, without tearing the group', () => {
+    // a is 1s in, so a 2s leftward drag stops it at 0 while b and c keep the
+    // full delta: the group compresses rather than inverting or jumping.
+    const moved = movedStartTimes(p, captureMoveOrigins(p, selection), -2)
+    expect(moved.clips.get('a')).toBe(0)
+    expect(moved.clips.get('b')).toBe(3)
+  })
+
+  it('leaves clips on locked tracks out of the result entirely', () => {
+    const moved = movedStartTimes(p, captureMoveOrigins(p, withLocked), 2)
+    expect(moved.clips.has('c')).toBe(false)
+  })
+
+  it('leaves unselected clips out of the result', () => {
+    const moved = movedStartTimes(p, captureMoveOrigins(p, selection), 2)
+    expect(moved.clips.has('d')).toBe(false)
+  })
+
+  it('keeps the whole selection out of the snap candidates', () => {
+    // b starts at 5; dragging a (at 1) rightwards by ~4s must not snap to b's
+    // edge, because b is moving with the group and its edge is not a target.
+    const snapped = draggedStartTimeSnapped({
+      clipStart: 1,
+      dxPx: 395,
+      pxPerSec: PX,
+      project: p,
+      playhead: 20,
+      excludeIds: ['a', 'b', 'c'],
+      snap: true,
+    })
+    expect(snapped).toBe(4.95)
+    // With only the dragged clip excluded, b's edge at 5 is a live target and
+    // 4.95 is within the 8px threshold, so it snaps.
+    const snappedAlone = draggedStartTimeSnapped({
+      clipStart: 1,
+      dxPx: 395,
+      pxPerSec: PX,
+      project: p,
+      playhead: 20,
+      excludeIds: ['a'],
+      snap: true,
+    })
+    expect(snappedAlone).toBe(5)
+  })
+})
+
+function clipFixture(id: string, trackId: string, startTime: number): Clip {
+  return {
+    id, mediaId: 'm', trackId, startTime, duration: 2,
+    mediaStart: 0, mediaEnd: 2,
+    speed: 1, volume: 1, muted: false, reversed: false, opacity: 1,
+    x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0,
+    brightness: 0, contrast: 0, saturation: 0,
+    exposure: 0, highlights: 0, shadows: 0,
+    temperature: 0, tint: 0, sharpness: 0,
+    chromaEnabled: false, chromaColor: '#00ff00', chromaTolerance: 0.3,
+    stabilize: false, effects: [], keyframes: [],
+  }
+}

@@ -39,6 +39,75 @@ export function draggedStartTime(clipStart: number, dxPx: number, pxPerSec: numb
   return Math.max(0, clipStart + dxPx / pxPerSec)
 }
 
+/** The four selection buckets, as the store keeps them. */
+export interface SelectionIds {
+  clips: string[]
+  texts: string[]
+  stickers: string[]
+  audios: string[]
+}
+
+export interface MoveOrigins {
+  clips: Map<string, number>
+  texts: Map<string, number>
+  stickers: Map<string, number>
+  audios: Map<string, number>
+}
+
+/**
+ * The start time of every selected clip at the moment a group drag began.
+ *
+ * Captured once, at mousedown, because a drag reports deltas: each move recomputes
+ * `origin + delta` rather than adding to the current position, so rounding and
+ * snapping never accumulate across a gesture.
+ */
+export function captureMoveOrigins(project: Project, selection: SelectionIds): MoveOrigins {
+  const pick = <T extends { id: string; startTime: number }>(list: T[], ids: string[]) => {
+    const wanted = new Set(ids)
+    return new Map(list.filter(c => wanted.has(c.id)).map(c => [c.id, c.startTime]))
+  }
+  return {
+    clips: pick(project.clips, selection.clips),
+    texts: pick(project.textClips, selection.texts),
+    stickers: pick(project.stickerClips, selection.stickers),
+    audios: pick(project.audioClips, selection.audios),
+  }
+}
+
+/**
+ * The start times a group drag writes, for a delta in seconds from the captured
+ * origins.
+ *
+ * Each clip clamps at timeline zero on its own, so dragging a group left stops
+ * the earliest clip at zero without dragging the rest past it or tearing the
+ * group apart. Clips on locked tracks are absent from the result entirely: a
+ * lock means the track does not move, even when its clip is part of a selection
+ * whose other members do.
+ */
+export function movedStartTimes(
+  project: Project,
+  origins: MoveOrigins,
+  delta: number,
+): MoveOrigins {
+  const locked = new Set(project.tracks.filter(t => t.locked).map(t => t.id))
+  const move = <T extends { id: string; trackId: string }>(list: T[], from: Map<string, number>) => {
+    const byId = new Map(list.map(c => [c.id, c]))
+    const out = new Map<string, number>()
+    for (const [id, origin] of from) {
+      const clip = byId.get(id)
+      if (!clip || locked.has(clip.trackId)) continue
+      out.set(id, Math.max(0, origin + delta))
+    }
+    return out
+  }
+  return {
+    clips: move(project.clips, origins.clips),
+    texts: move(project.textClips, origins.texts),
+    stickers: move(project.stickerClips, origins.stickers),
+    audios: move(project.audioClips, origins.audios),
+  }
+}
+
 /**
  * The same, with snapping applied unless the caller disabled it.
  *
@@ -51,12 +120,12 @@ export function draggedStartTimeSnapped(opts: {
   pxPerSec: number
   project: Project
   playhead: number
-  excludeId?: string
+  excludeIds?: string[]
   snap: boolean
 }): number {
   const raw = draggedStartTime(opts.clipStart, opts.dxPx, opts.pxPerSec)
   if (!opts.snap) return raw
-  return snapTime(opts.project, raw, opts.playhead, opts.pxPerSec, opts.excludeId)
+  return snapTime(opts.project, raw, opts.playhead, opts.pxPerSec, opts.excludeIds)
 }
 
 /**
@@ -84,7 +153,7 @@ export function snappedTrimDxPx(opts: {
   const dx = opts.dxPx / opts.pxPerSec
   if (opts.side === 'right') {
     const rawEnd = opts.clip.startTime + opts.clip.duration + dx
-    const end = snapTime(opts.project, rawEnd, opts.playhead, opts.pxPerSec, opts.clip.id)
+    const end = snapTime(opts.project, rawEnd, opts.playhead, opts.pxPerSec, [opts.clip.id])
     // snapTime returns its input when nothing is in range; passing the original
     // delta back untouched in that case keeps the no-snap path exact instead of
     // round-tripping it through time and picking up float noise.
@@ -92,7 +161,7 @@ export function snappedTrimDxPx(opts: {
     return (end - (opts.clip.startTime + opts.clip.duration)) * opts.pxPerSec
   }
   const rawStart = Math.max(0, opts.clip.startTime + dx)
-  const start = snapTime(opts.project, rawStart, opts.playhead, opts.pxPerSec, opts.clip.id)
+  const start = snapTime(opts.project, rawStart, opts.playhead, opts.pxPerSec, [opts.clip.id])
   if (start === rawStart) return opts.dxPx
   return (start - opts.clip.startTime) * opts.pxPerSec
 }

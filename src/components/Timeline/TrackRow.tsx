@@ -77,7 +77,7 @@ export function TrackRow({
           track={track}
           pxPerSec={pxPerSec}
           selected={selectedClipIds.includes(clip.id)}
-          onMouseDown={e => startClipMove(e, 'clips', clip.id, clip.startTime, updateClip)}
+          onMouseDown={e => startClipMove(e, 'clips', clip.id, clip.startTime)}
           onResizeLeft={e => startClipTrim(e, 'left', clip, updateClip)}
           onResizeRight={e => startClipTrim(e, 'right', clip, updateClip)}
           onContextMenu={e => onClipContextMenu(e, clip.id, 'video')}
@@ -85,8 +85,9 @@ export function TrackRow({
         />
       ))}
 
-      {/* Transition markers, centred on the cut at the end of each clip. They
-          are preview-only: the export drops transitions entirely (D15). */}
+      {/* Transition markers, centred on the cut at the end of each clip. The
+          compositor engine renders them; the filtergraph fallback hard-cuts and
+          says so in its warning (D15). */}
       {videoClips.map(clip => {
         const tr = project.transitions.find(t => t.clipId === clip.id)
         if (!tr) return null
@@ -125,7 +126,7 @@ export function TrackRow({
           pxPerSec={pxPerSec}
           selected={selectedAudioIds.includes(clip.id)}
           media={project.media.find(m => m.id === clip.mediaId)}
-          onMouseDown={e => startClipMove(e, 'audios', clip.id, clip.startTime, updateAudioClip)}
+          onMouseDown={e => startClipMove(e, 'audios', clip.id, clip.startTime)}
           onResizeLeft={e => startClipTrim(e, 'left', clip, updateAudioClip)}
           onResizeRight={e => startClipTrim(e, 'right', clip, updateAudioClip)}
           onContextMenu={e => onClipContextMenu(e, clip.id, 'audio')}
@@ -139,7 +140,7 @@ export function TrackRow({
           clip={clip}
           pxPerSec={pxPerSec}
           selected={selectedTextIds.includes(clip.id)}
-          onMouseDown={e => startClipMove(e, 'texts', clip.id, clip.startTime, updateTextClip)}
+          onMouseDown={e => startClipMove(e, 'texts', clip.id, clip.startTime)}
           onResizeLeft={e => startClipTrim(e, 'left', clip, updateTextClip)}
           onResizeRight={e => startClipTrim(e, 'right', clip, updateTextClip)}
           onContextMenu={e => onClipContextMenu(e, clip.id, 'text')}
@@ -153,7 +154,7 @@ export function TrackRow({
           clip={clip}
           pxPerSec={pxPerSec}
           selected={selectedStickerIds.includes(clip.id)}
-          onMouseDown={e => startClipMove(e, 'stickers', clip.id, clip.startTime, updateStickerClip)}
+          onMouseDown={e => startClipMove(e, 'stickers', clip.id, clip.startTime)}
           onResizeLeft={e => startClipTrim(e, 'left', clip, updateStickerClip)}
           onResizeRight={e => startClipTrim(e, 'right', clip, updateStickerClip)}
           onContextMenu={e => onClipContextMenu(e, clip.id, 'sticker')}

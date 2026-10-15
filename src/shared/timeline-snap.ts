@@ -11,7 +11,8 @@ export const SNAP_PX = 8
  * SNAP_PX at this zoom.
  *
  * Targets are the playhead, zero, the start and end of every other clip, and
- * every marker. `excludeId` stops the dragged clip snapping to itself.
+ * every marker. `excludeIds` keeps the dragged clip - and, for a group drag, its
+ * fellow selected clips - out of the candidate set.
  *
  * Ties go to whichever target comes first, so the candidate order below is part
  * of the behaviour: playhead, zero, then video, audio, text and sticker clips,
@@ -24,14 +25,18 @@ export function snapTime(
   t: number,
   playhead: number,
   pxPerSec: number,
-  excludeId?: string,
+  excludeIds: string[] = [],
 ): number {
   const threshold = SNAP_PX / pxPerSec
+  const excluded = new Set(excludeIds)
   const snaps: number[] = [playhead, 0]
   for (const c of [
     ...project.clips, ...project.audioClips, ...project.textClips, ...project.stickerClips,
   ]) {
-    if (c.id === excludeId) continue
+    // The whole selection is excluded, not just the clip under the cursor: a
+    // group drag keeps its members' relative offsets, so a member's own moving
+    // edge would otherwise act as a snap target and jitter the gesture.
+    if (excluded.has(c.id)) continue
     snaps.push(c.startTime, c.startTime + c.duration)
   }
   for (const m of project.markers) snaps.push(m.time)

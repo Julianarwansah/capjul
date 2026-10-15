@@ -92,9 +92,9 @@ describe('snapTime', () => {
 
   it('does not snap the dragged clip to itself', () => {
     const p = project({ clips: [clip('dragged', 10, 2)] })
-    expect(snapTime(p, 10.05, 20, PX_PER_SEC, 'dragged')).toBe(10.05)
+    expect(snapTime(p, 10.05, 20, PX_PER_SEC, ['dragged'])).toBe(10.05)
     // Still snaps to a different clip nearby.
-    expect(snapTime(p, 10.05, 20, PX_PER_SEC, 'someone-else')).toBe(10)
+    expect(snapTime(p, 10.05, 20, PX_PER_SEC, ['someone-else'])).toBe(10)
   })
 
   it('picks the nearest target when several are in range', () => {
@@ -143,7 +143,7 @@ describe('snapTime', () => {
     // excludeId removes the clip being dragged, not the markers; a clip dragged
     // onto its own start time should still land on a marker sitting there.
     const p = project({ clips: [clip('me', 10, 2)], markers: [{ id: 'k', time: 10 }] })
-    expect(snapTime(p, 10.05, 20, PX_PER_SEC, 'me')).toBe(10)
+    expect(snapTime(p, 10.05, 20, PX_PER_SEC, ['me'])).toBe(10)
   })
 
   it('breaks a tie in favour of a clip edge, because markers sort last', () => {

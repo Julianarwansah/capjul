@@ -1,6 +1,9 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { useEditorStore } from '../../store/editorStore'
-import { draggedStartTimeSnapped, snappedTrimDxPx, trimChanges, type DraggableClip, type TrimChanges } from '../../shared/clip-drag'
+import {
+  captureMoveOrigins, draggedStartTimeSnapped, snappedTrimDxPx, trimChanges,
+  type DraggableClip, type SelectionIds, type TrimChanges,
+} from '../../shared/clip-drag'
 
 // DOM glue for dragging and trimming clips on the timeline. All the arithmetic
 // lives in shared/clip-drag.ts, which is pure and tested; this module only
@@ -14,13 +17,7 @@ import { draggedStartTimeSnapped, snappedTrimDxPx, trimChanges, type DraggableCl
 /** Which of the store's four selection buckets a clip belongs to. */
 export type SelectionKind = 'clips' | 'texts' | 'stickers' | 'audios'
 
-type Selection = { clips?: string[]; texts?: string[]; stickers?: string[]; audios?: string[] }
-type MoveUpdate = (id: string, changes: { startTime: number }) => void
 type TrimUpdate = (id: string, changes: TrimChanges) => void
-
-function onlyKind(kind: SelectionKind, ids: string[]): Selection {
-  return { [kind]: ids }
-}
 
 /** Runs `onMove` on every mousemove until the button is released. */
 function trackDrag(onMove: (e: MouseEvent) => void) {
@@ -33,39 +30,57 @@ function trackDrag(onMove: (e: MouseEvent) => void) {
 }
 
 /**
- * Selects a clip and drags it along the timeline.
+ * Selects a clip and drags it - and everything selected with it - along the
+ * timeline.
  *
  * Shift at mousedown toggles the clip in or out of the current selection; shift
  * held *during* the drag instead disables snapping, which is the existing
- * convention for moving something precisely.
+ * convention for moving something precisely. Dragging a clip that is already
+ * part of a multi-selection moves the whole selection, which is what marquee
+ * selection promises; dragging one that is not selected narrows to it first.
  */
 export function startClipMove(
   e: ReactMouseEvent,
   kind: SelectionKind,
   clipId: string,
   clipStart: number,
-  update: MoveUpdate,
 ) {
   e.stopPropagation()
   e.preventDefault()
   const startX = e.clientX
 
   const store = useEditorStore.getState()
-  const current = {
+  const current: SelectionIds = {
     clips: store.selectedClipIds,
     texts: store.selectedTextIds,
     stickers: store.selectedStickerIds,
     audios: store.selectedAudioIds,
   }
+  const empty: SelectionIds = { clips: [], texts: [], stickers: [], audios: [] }
+  const justDragged: SelectionIds = { ...empty, [kind]: [clipId] }
+
+  let selection: SelectionIds
   if (e.shiftKey) {
     const ids = current[kind]
-    store.setSelected({
+    selection = {
       ...current,
       [kind]: ids.includes(clipId) ? ids.filter(id => id !== clipId) : [...ids, clipId],
-    })
+    }
+    store.setSelected(selection)
+  } else if (current[kind].includes(clipId)) {
+    selection = current
   } else {
-    store.setSelected(onlyKind(kind, [clipId]))
+    selection = justDragged
+    store.setSelected(selection)
   }
+  // A shift-click that toggled the dragged clip out of the selection still moves
+  // that clip, as it always has - just on its own.
+  const moved = selection[kind].includes(clipId) ? selection : justDragged
+
+  const origins = captureMoveOrigins(store.project, moved)
+  const excludeIds = [
+    ...moved.clips, ...moved.texts, ...moved.stickers, ...moved.audios,
+  ]
 
   trackDrag(me => {
     // Read the store on every move rather than capturing it at mousedown: a drag
@@ -77,10 +92,10 @@ export function startClipMove(
       pxPerSec: s.zoom,
       project: s.project,
       playhead: s.currentTime,
-      excludeId: clipId,
+      excludeIds,
       snap: s.snapEnabled && !me.shiftKey,
     })
-    update(clipId, { startTime })
+    s.moveSelectionBy(origins, startTime - clipStart)
   })
 }
 

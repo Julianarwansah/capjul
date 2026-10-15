@@ -4,6 +4,7 @@ import { computeDuration } from '../shared/project-duration'
 import { canSplitAt, splitClipAt, type Splittable } from '../shared/clip-split'
 import { copyClipAfter } from '../shared/clip-factory'
 import { toggleMarker as applyMarkerToggle } from '../shared/markers'
+import { movedStartTimes, type MoveOrigins } from '../shared/clip-drag'
 import {
   ASPECT_RATIOS, COALESCE_WINDOW_MS, HISTORY_LIMIT,
   cloneProject, createDefaultProject,
@@ -106,6 +107,10 @@ export interface EditorState {
    *  either end of the stack. */
   moveTrack: (id: string, direction: 1 | -1) => void
   updateTrack: (id: string, changes: Partial<Track>) => void
+
+  /** Moves every clip captured in `origins` by `delta` seconds. Coalesces into
+   *  one undo step per gesture, like the single-clip update it replaces. */
+  moveSelectionBy: (origins: MoveOrigins, delta: number) => void
 
   /** Adds a marker at `time`, or removes the one already on that frame. */
   toggleMarker: (time: number) => void
@@ -461,6 +466,20 @@ export const useEditorStore = create<EditorState>()(
       p => ({ ...p, tracks: p.tracks.map(t => t.id === id ? { ...t, ...changes } : t) }),
       true,
     ),
+
+    moveSelectionBy: (origins, delta) => get().mutate(p => {
+      const times = movedStartTimes(p, origins, delta)
+      const apply = <T extends { id: string; startTime: number }>(
+        list: T[], moved: Map<string, number>,
+      ) => list.map(c => (moved.has(c.id) ? { ...c, startTime: moved.get(c.id)! } : c))
+      return {
+        ...p,
+        clips: apply(p.clips, times.clips),
+        textClips: apply(p.textClips, times.texts),
+        stickerClips: apply(p.stickerClips, times.stickers),
+        audioClips: apply(p.audioClips, times.audios),
+      }
+    }, true),
 
     toggleMarker: (time) => get().mutate(p => ({
       ...p,
