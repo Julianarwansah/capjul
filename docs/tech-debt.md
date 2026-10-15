@@ -117,6 +117,31 @@ another half to a day for the Web Audio path. Do export first only if the previe
 can follow in the same change — shipping one side would recreate D22's shape.
 Owner: next engineering slot.
 
+### D27 — Captions render in the preview and in neither export engine
+`project.captions` (SRT import and the TextPanel's caption editor) are painted by
+`CaptionOverlay` in the preview and read by nothing else: not `compileScene`, not
+`compositor.ts`, not `render-plan.ts`. An imported subtitle track is visible
+while editing and absent from every export, silently - the same class as D15 and
+D23 were, and the last remaining content the preview shows that the default
+engine does not draw.
+
+The blocker is line wrapping, not rasterization. `layoutText` splits on explicit
+newlines only; the preview's caption box wraps with CSS `pre-wrap` at 80% of the
+canvas width. Exporting captions as they are would ship different line breaks
+from the ones the user read, which is worse for subtitles than for any other
+text because the breaks are the content.
+The design that resolves it: a shared greedy wrap taking a `measure` function,
+called with `measureText` on both sides under the same font string and the same
+max width, with the preview rendering the resulting lines under `white-space:
+pre` instead of letting CSS wrap. Line breaks then come from one algorithm and
+one metric source, and the existing text rasterizer can draw the joined lines
+unchanged. The filtergraph engine gets captions through the same overlay-PNG
+path text clips already use.
+Impact: a whole imported artefact vanishes on export with no warning.
+Effort: about a day, most of it the wrap function and making the preview stop
+wrapping in CSS; the draw and overlay paths already exist for text.
+Owner: next engineering slot.
+
 ### D9 — External tooling commits and pushes without instruction
 Seven times now an unidentified tool in this environment created commits and
 pushed them, using the local git identity, without being asked. One push raced a
