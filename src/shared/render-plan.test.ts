@@ -270,3 +270,45 @@ describe('audioGraphFilters volume', () => {
     expect(plan.audio[0].keyframes).toEqual(kfs)
   })
 })
+
+describe('audioGraphFilters fades', () => {
+  const inputs = [{ id: 'in0', path: '/tmp/a.mp3' }]
+  const entry = (over: Partial<RenderAudio> = {}): RenderAudio => ({
+    inputId: 'in0', start: 1, mediaStart: 0, mediaEnd: 4, speed: 1,
+    volume: 1, fadein: 0, fadeout: 0, keyframes: [],
+    ...over,
+  })
+
+  it('emits no afade when there are no fades', () => {
+    expect(audioGraphFilters(inputs, [entry()])[0]).not.toContain('afade')
+  })
+
+  it('fades in from the start of the trimmed clip', () => {
+    expect(audioGraphFilters(inputs, [entry({ fadein: 1.5 })])[0])
+      .toContain('afade=t=in:st=0:d=1.5')
+  })
+
+  it('fades out ending at the end of the audible span', () => {
+    // span is 4 at speed 1, so a 1s fade-out starts at 3.
+    expect(audioGraphFilters(inputs, [entry({ fadeout: 1 })])[0])
+      .toContain('afade=t=out:st=3:d=1')
+  })
+
+  it('times the fades in output seconds, so tempo shrinks them with the clip', () => {
+    // span is 2 at speed 2 over the same 4s of source; the fade-out must start at
+    // 1, not 3, or the preview's envelope and the export's filter disagree.
+    expect(audioGraphFilters(inputs, [entry({ speed: 2, fadeout: 1 })])[0])
+      .toContain('afade=t=out:st=1:d=1')
+  })
+
+  it('runs the fades after volume and before the delay into the mix', () => {
+    const chain = audioGraphFilters(inputs, [entry({ fadein: 1, fadeout: 1 })])[0]
+    const volumeAt = chain.indexOf('volume=')
+    const fadeInAt = chain.indexOf('afade=t=in')
+    const fadeOutAt = chain.indexOf('afade=t=out')
+    const delayAt = chain.indexOf('adelay=')
+    expect(volumeAt).toBeLessThan(fadeInAt)
+    expect(fadeInAt).toBeLessThan(fadeOutAt)
+    expect(fadeOutAt).toBeLessThan(delayAt)
+  })
+})

@@ -1,4 +1,5 @@
 import type { Keyframe, MediaFile, Project } from './project-schema'
+import { audioSpan } from './audio-fade'
 import { buildFfmpegColorChain, colorAdjustFactors } from './color-adjust'
 import { easeFfmpeg } from './keyframe-easing'
 
@@ -350,7 +351,7 @@ export function audioGraphFilters(
 ): string[] {
   const inputIndex = new Map(inputs.map((n, i) => [n.id, i + indexOffset]))
   return entries.map((entry, i) => {
-    const span = (entry.mediaEnd - entry.mediaStart) / entry.speed
+    const span = audioSpan(entry.mediaStart, entry.mediaEnd, entry.speed)
     const chain = [
       `[${inputIndex.get(entry.inputId)}:a]atrim=start=${round4(entry.mediaStart)}:end=${round4(entry.mediaEnd)}`,
       'asetpts=PTS-STARTPTS',

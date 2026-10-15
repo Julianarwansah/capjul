@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { audioSpan, fadeGain } from '../../shared/audio-fade'
 import { interpolate } from '../../shared/keyframe-interpolate'
 import type { AudioClip, MediaFile, Track } from '../../types'
 
@@ -46,7 +47,9 @@ export function useAudioClips({
   }, [audioClips, media])
 
   // Volume, mute and rate. Volume is keyframed, resolved at the same timeline
-  // instant the export expression uses.
+  // instant the export expression uses, and multiplied by the fade envelope the
+  // export's afade chain produces - without it the preview played faded clips
+  // flat and the fade arrived as a surprise in the exported file (D26).
   useEffect(() => {
     const map = elemsRef.current
     for (const clip of audioClips) {
@@ -54,7 +57,9 @@ export function useAudioClips({
       if (!el) continue
       const trackMuted = tracks.find(t => t.id === clip.trackId)?.muted ?? false
       const interpVol = interpolate(clip.keyframes ?? [], 'volume', currentTime, clip.volume)
-      el.volume = Math.max(0, Math.min(1, interpVol * (muted ? 0 : 1)))
+      const span = audioSpan(clip.mediaStart, clip.mediaEnd, clip.speed)
+      const fade = fadeGain(clip.startTime, span, clip.fadein, clip.fadeout, currentTime)
+      el.volume = Math.max(0, Math.min(1, interpVol * fade * (muted ? 0 : 1)))
       el.muted = clip.muted || trackMuted || muted
       el.playbackRate = clip.speed
     }
