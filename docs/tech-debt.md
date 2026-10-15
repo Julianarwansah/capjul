@@ -991,3 +991,22 @@ Kept here for traceability; each has a commit.
   - implicit `ellipse`, no `at center`, four decimals, spaces inside the rgba -
   and substring-matching that serialization measured Chrome, not the app. The
   first attempt did exactly that and failed two checks whose values were correct.
+- Detaching a video clip's audio onto its own track (new feature). "Pisahkan
+  audio" in the clip menu lifts the audio window - start, duration, media window,
+  volume, mute, speed - onto an audio track, reusing one if the project has it
+  and creating one if not, and mutes the source clip so the same audio does not
+  play from two places. One `mutate()`, so one undo step restores both halves.
+  The guard lives in two places with two different jobs: the store action no-ops
+  for image clips and unknown ids *outside* `mutate()` so a no-op spends no undo
+  step, and the menu row is gated on the media type separately, because
+  `kind === 'video'` means "lives in the clips array" and includes image clips.
+  The first probe run showed the row on an image clip - a menu entry whose only
+  possible behaviour is nothing - and the check failed for exactly the right
+  reason.
+- The context menu itself was completed while gaining that row. It had no ARIA
+  roles, no focus management and no arrow-key navigation: four or five unnamed
+  buttons in a fixed div. It is now `role="menu"` with `role="menuitem"` rows,
+  focuses its first item on open and returns focus on close, cycles with
+  ArrowUp/Down and Home/End, and handles Escape with propagation stopped - which
+  also fixes a latent double-action where closing the menu cleared the selection
+  through App.tsx's global Escape binding.
