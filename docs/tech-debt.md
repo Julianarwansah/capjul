@@ -119,9 +119,22 @@ an edit second.
 Owner: **Julian** for the semantics; engineering after.
 
 ### D9 — External tooling commits and pushes without instruction
-Four times now an unidentified tool in this environment created commits and
+Five times now an unidentified tool in this environment created commits and
 pushed them, using the local git identity, without being asked. One push raced a
 local history rewrite; it happened not to collide.
+
+**The fifth occurrence is the most diagnostic, because it pushed without
+committing.** `origin/main` moved from `9c34f76` to `038115f`, carrying exactly
+four commits that were authored locally and deliberately held back pending
+instruction. Nothing was written, nothing was overwritten — `git reflog show
+origin/main` records `update by push` and `merge-base --is-ancestor origin/main
+HEAD` still holds, so the history stayed a clean fast-forward. Every previous
+occurrence produced a commit as well as a push; this one produced only the push.
+So the mechanism has a push path that does not depend on it having authored
+anything, which rules out "an auto-commit feature that pushes what it made" and
+points at something that syncs the branch as such — a checkpoint/restore feature,
+an editor's git integration, or a sync daemon. It also means holding commits back
+locally is not by itself a safeguard.
 
 It has now been narrowed, which is the useful part. **The mechanism is not in
 this repository.** There are no git hooks (`.git/hooks` holds only the samples),
@@ -138,10 +151,13 @@ paths did.
 
 Impact: process risk — unreviewed or half-finished states become public history,
 with commit messages that misdescribe the change. This is the only item in the
-register that cannot be fixed from inside the codebase.
-Effort: unknown until the tool is identified. Check editor/agent auto-commit or
-checkpoint settings; `git log --format='%h %ad %s' --date=iso` compared against
-when you were actually editing will show which ones are not yours.
+register that cannot be fixed from inside the codebase. The fifth occurrence
+raises it slightly: publishing is now separable from authoring, so a commit made
+in confidence that it is still local may not stay local.
+Effort: unknown until the tool is identified. Check editor/agent auto-commit,
+checkpointing or branch-sync settings; `git reflog show origin/main` timestamps
+against `git log --format='%h %ad %s' --date=iso` will show which pushes do not
+correspond to a session that asked for one.
 Owner: **Julian** — this is your environment, not the codebase.
 
 ### D10 — Packaging works, but nothing it produces is distributable
