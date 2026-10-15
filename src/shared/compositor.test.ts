@@ -307,3 +307,41 @@ describe('drawSceneFrame overlay effects', () => {
     expect(log.filter(l => l.startsWith('fillRect'))).toEqual(['fillRect(0,0,1280,720)'])
   })
 })
+
+describe('drawSceneFrame chroma key', () => {
+  const keyed = { __name: 'keyed-m1' } as unknown as HTMLCanvasElement
+
+  it('draws the keyed copy of a chroma layer, not the raw frame', () => {
+    const p = project({ clips: [clip({ chromaEnabled: true })] })
+    const sources = sourcesFor(p)
+    let asked: string | null = null
+    sources.keyedFrame = (layer, _el, w, h) => {
+      asked = `${layer.mediaId}@${w}x${h}`
+      return keyed
+    }
+    const { ctx, log } = mockCtx()
+    drawSceneFrame(ctx, compileScene(p), sources, 1)
+    expect(asked).toBe('m1@1920x1080')
+    expect(log.filter(l => l.startsWith('drawImage'))).toEqual(['drawImage(keyed-m1,-640,-360,1280,720)'])
+  })
+
+  it('falls back to the raw frame when keying is unavailable', () => {
+    const p = project({ clips: [clip({ chromaEnabled: true })] })
+    const sources = sourcesFor(p)
+    sources.keyedFrame = () => null
+    const { ctx, log } = mockCtx()
+    drawSceneFrame(ctx, compileScene(p), sources, 1)
+    expect(log.filter(l => l.startsWith('drawImage'))).toEqual(['drawImage(m1,-640,-360,1280,720)'])
+  })
+
+  it('never asks for a keyed copy of a layer that is not keyed', () => {
+    const p = project({ clips: [clip()] })
+    const sources = sourcesFor(p)
+    let asked = 0
+    sources.keyedFrame = () => { asked++; return keyed }
+    const { ctx, log } = mockCtx()
+    drawSceneFrame(ctx, compileScene(p), sources, 1)
+    expect(asked).toBe(0)
+    expect(log.filter(l => l.startsWith('drawImage'))).toEqual(['drawImage(m1,-640,-360,1280,720)'])
+  })
+})

@@ -2,6 +2,7 @@
 // the main process. This is the Phase 2 compositor: the single place that knows
 // how a Scene becomes pixels, so preview and export cannot drift.
 import { isActiveAt, mediaTimeAt, stickerTransformAt, textTransformAt, transformAt, type Scene, type SceneImageLayer, type SceneLayer, type SceneStickerLayer, type SceneTextLayer, type SceneVideoLayer } from './scene'
+import { applyChromaKey, parseChromaColor } from './chroma-key'
 import { hasTransitionClip, poseBlurPx, poseClipRect, transitionPose, type TransitionClipPose } from './transition-pose'
 import { VIGNETTE_RADIUS_FRACTIONS, letterboxFraction, vignetteStops } from './overlay-effects'
 import { rasterizeTextCentred, stickerPlacement, loadSvgImage } from './text-rasterizer'
@@ -79,6 +80,18 @@ export interface SceneSources {
   images: Map<string, HTMLImageElement>
   textRasters: Map<string, HTMLCanvasElement>
   stickers: Map<string, HTMLImageElement>
+  /**
+   * Renders a chroma-keyed copy of a media element's current frame, or null when
+   * keying is unavailable. prepareScene supplies the real pixel pass; a test can
+   * omit it, in which case a keyed layer draws its raw source, or stub it to
+   * assert that the keyed copy is what gets drawn.
+   */
+  keyedFrame?: (
+    layer: SceneVideoLayer | SceneImageLayer,
+    el: CanvasImageSource,
+    w: number,
+    h: number,
+  ) => CanvasImageSource | null
 }
 
 interface DrawableSize { w: number; h: number }
@@ -109,6 +122,11 @@ function drawMediaLayer(
     | undefined
   const size = sourceSize(layer, sources)
   if (!el || !size) return
+  // A keyed layer draws its keyed copy, not the raw frame: the green has to be
+  // gone before the pose, the filter and the blend see it.
+  const drawable = layer.chromaEnabled && sources.keyedFrame
+    ? sources.keyedFrame(layer, el, size.w, size.h) ?? el
+    : el
   const { width: W, height: H } = scene
   const tr = transformAt(layer.keyframes, layer.transform, t)
   ctx.save()
@@ -151,7 +169,7 @@ function drawMediaLayer(
   const s = Math.min(W / size.w, H / size.h)
   const dw = size.w * s
   const dh = size.h * s
-  ctx.drawImage(el, -dw / 2, -dh / 2, dw, dh)
+  ctx.drawImage(drawable, -dw / 2, -dh / 2, dw, dh)
   ctx.restore()
 }
 
@@ -378,7 +396,36 @@ export async function prepareScene(
     if (svg) stickers.set(src, await loadSvgImage(svg))
   }
 
-  const sources: SceneSources = { videos, images, textRasters: textCanvases, stickers }
+  // One scratch canvas per keyed media id. The pixel pass reads and writes the
+  // same buffer every frame; allocating one per frame would put the garbage
+  // collector inside the export loop.
+  const keyScratch = new Map<string, HTMLCanvasElement>()
+  function keyedFrame(
+    layer: SceneVideoLayer | SceneImageLayer,
+    el: CanvasImageSource,
+    w: number,
+    h: number,
+  ): CanvasImageSource | null {
+    let canvas = keyScratch.get(layer.mediaId)
+    if (!canvas) {
+      canvas = document.createElement('canvas')
+      keyScratch.set(layer.mediaId, canvas)
+    }
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w
+      canvas.height = h
+    }
+    const kctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (!kctx) return null
+    kctx.clearRect(0, 0, w, h)
+    kctx.drawImage(el, 0, 0, w, h)
+    const frame = kctx.getImageData(0, 0, w, h)
+    applyChromaKey(frame.data, parseChromaColor(layer.chromaColor), layer.chromaTolerance)
+    kctx.putImageData(frame, 0, 0)
+    return canvas
+  }
+
+  const sources: SceneSources = { videos, images, textRasters: textCanvases, stickers, keyedFrame }
 
   function drawFrame(ctx: CanvasRenderingContext2D, t: number) {
     drawSceneFrame(ctx, scene, sources, t)

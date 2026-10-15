@@ -31,6 +31,11 @@ interface SceneLayerBase {
   keyframes: Keyframe[]
   /** CSS filter string, identical to the preview's, applied via ctx.filter */
   filter: string
+  /** Chroma key, carried so the compositor can key the layer itself. The preview
+   *  keys through useChromaKey with the same shared pixel math. */
+  chromaEnabled: boolean
+  chromaColor: string
+  chromaTolerance: number
   /** The clip's overlay effects. The nine CSS-filter ones are already folded
    *  into `filter`; these remain listed so the compositor can draw the two it
    *  renders full-frame - letterbox and vignette - after every layer. */
@@ -106,6 +111,9 @@ export function compileScene(project: Project): Scene {
       keyframes: clip.keyframes ?? [],
       filter: mediaLayerFilter(clip),
       effects: clip.effects ?? [],
+      chromaEnabled: clip.chromaEnabled,
+      chromaColor: clip.chromaColor,
+      chromaTolerance: clip.chromaTolerance,
     }
     return item.media.type === 'image'
       ? { kind: 'image', ...base }
