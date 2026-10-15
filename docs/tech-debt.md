@@ -842,6 +842,37 @@ Kept here for traceability; each has a commit.
   platform behaviour until the check focused the button first. The first is the
   more general trap: a test helper that evaluates one expression will eat the
   rest of a statement list without a warning.
+- Trims snap, and snapping can be turned off (new feature). Moves snapped to the
+  playhead, other clips' edges and markers; trims landed wherever the pointer
+  stopped, so the same gesture boundary behaved two ways. Edges now snap through
+  the same `snapTime`, and a magnet button in the timeline toolbar turns the whole
+  behaviour off, with shift-during-gesture still freeing a single drag as before.
+  Snapping is expressed as a *corrected delta* fed to the existing `trimChanges`
+  rather than as a second trim implementation: `trimChanges` stays the single
+  owner of the minimum duration, the floor at timeline zero and the media window
+  moving with the edge, which is where the clamped-delta bug (P1) originally
+  lived and the last place a second copy of that logic should exist.
+  `snapTime` returns its input unchanged when nothing is in range, so the
+  no-snap path returns the original delta exactly; the first version round-
+  tripped through time and back and came out 45.000000000000014, which the test
+  caught and the early return fixed.
+  The magnet is session UI state, not project data: it is not in the schema, not
+  saved, not exported, because whether *this editing session* wants snapping is
+  not a property of the film. Lucide has no magnet-off glyph, so the off state
+  strikes the magnet through — a shape change, since colour alone would leave
+  the state invisible to anyone not seeing the colour — and `aria-pressed`
+  carries it for assistive tech.
+  8 unit tests on the corrected delta, including that a trim cannot snap to the
+  other end of the clip being trimmed. 7 browser checks dragging real mouse
+  gestures on a real trim handle: snap to a neighbour's edge, snap to the
+  playhead, shift frees, magnet off frees, magnet button flips and reports, and a
+  far-from-anything trim landing exactly where the pointer stopped.
+  The probe's first version missed the snap threshold on every case because it
+  grabbed the handle's centre, which sits 4px inside the clip edge, and a trim
+  moves the edge by the pointer delta - so every drag landed 0.04s past its aim.
+  The app was correct; the gesture math was not. Recorded because the failure
+  pattern (uniformly off by the handle's half-width) is what distinguishes a bad
+  probe from a bad feature.
 - Audio fades are audible in the preview (was D26). `shared/audio-fade.ts` holds
   `audioSpan` — the audible length in timeline seconds, `(mediaEnd - mediaStart) /
   speed`, which is the span the export's `afade` chain times its ramps against —
