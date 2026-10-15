@@ -21,6 +21,7 @@ function makeProject(over: Partial<Project> = {}): Project {
     audioClips: [],
     transitions: [],
     captions: [],
+    markers: [],
     ...over,
   }
 }
@@ -39,7 +40,7 @@ const clip = {
 }
 
 describe('serialize', () => {
-  it('writes a v2 envelope', () => {
+  it('writes an envelope at the current schema version', () => {
     const text = serializeProjectFile(makeProject(), '1.2.3')
     const envelope = JSON.parse(text)
     expect(envelope.app).toBe('capjul')
@@ -198,6 +199,57 @@ describe('parse: v3 -> v4 keyframe easing', () => {
       },
     }
     expect(parseProjectFile(JSON.stringify(bad)).ok).toBe(false)
+  })
+})
+
+describe('parse: v4 -> v5 markers', () => {
+  /** A v4 envelope, which is a current project with no `markers` key at all. */
+  function v4Envelope(projectOver: Record<string, unknown> = {}) {
+    const { markers: _dropped, ...rest } = makeProject()
+    void _dropped
+    return JSON.stringify({
+      app: 'capjul', schemaVersion: 4, savedAt: 1, appVersion: '0.0.0',
+      project: { ...rest, ...projectOver },
+    })
+  }
+
+  it('gives a project written before markers existed an empty list', () => {
+    const out = parseProjectFile(v4Envelope())
+    expect(out.ok).toBe(true)
+    if (out.ok) {
+      expect(out.migratedFrom).toBe(4)
+      expect(out.project.markers).toEqual([])
+    }
+  })
+
+  it('keeps markers a v4 file somehow already carries', () => {
+    const out = parseProjectFile(v4Envelope({ markers: [{ id: 'm1', time: 2.5 }] }))
+    expect(out.ok).toBe(true)
+    if (out.ok) expect(out.project.markers).toEqual([{ id: 'm1', time: 2.5 }])
+  })
+
+  it('replaces a hand-edited non-array with an empty list rather than rejecting', () => {
+    const out = parseProjectFile(v4Envelope({ markers: null }))
+    expect(out.ok).toBe(true)
+    if (out.ok) expect(out.project.markers).toEqual([])
+  })
+
+  it('still rejects a marker that is not a marker', () => {
+    // The migration only guarantees an array; the schema still validates each
+    // entry, so a corrupt one is refused instead of silently dropped.
+    const out = parseProjectFile(v4Envelope({ markers: [{ id: 'm1' }] }))
+    expect(out).toMatchObject({ ok: false, code: 'E_CORRUPT' })
+  })
+
+  it('round-trips markers through the current version untouched', () => {
+    const markers = [{ id: 'm1', time: 0 }, { id: 'm2', time: 4.5 }]
+    const original = makeProject({ markers, duration: 5 })
+    const out = parseProjectFile(serializeProjectFile(original, '0.0.1'))
+    expect(out.ok).toBe(true)
+    if (out.ok) {
+      expect(out.migratedFrom).toBe(null)
+      expect(out.project.markers).toEqual(markers)
+    }
   })
 })
 

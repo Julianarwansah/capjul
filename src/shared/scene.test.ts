@@ -27,7 +27,7 @@ function project(over: Partial<Project> = {}): Project {
       { id: 't0', type: 'video', label: 'Main', muted: false, locked: false, height: 64 },
       { id: 't1', type: 'video', label: 'Top', muted: false, locked: false, height: 64 },
     ],
-    clips: [], textClips: [], stickerClips: [], audioClips: [], transitions: [], captions: [],
+    clips: [], textClips: [], stickerClips: [], audioClips: [], transitions: [], captions: [], markers: [],
     ...over,
   }
 }

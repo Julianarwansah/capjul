@@ -3,6 +3,7 @@ import { subscribeWithSelector } from 'zustand/middleware'
 import { computeDuration } from '../shared/project-duration'
 import { canSplitAt, splitClipAt, type Splittable } from '../shared/clip-split'
 import { copyClipAfter } from '../shared/clip-factory'
+import { toggleMarker as applyMarkerToggle } from '../shared/markers'
 import {
   ASPECT_RATIOS, COALESCE_WINDOW_MS, HISTORY_LIMIT,
   cloneProject, createDefaultProject,
@@ -95,6 +96,11 @@ export interface EditorState {
   addTrack: (type: Track['type']) => string
   removeTrack: (id: string) => void
   updateTrack: (id: string, changes: Partial<Track>) => void
+
+  /** Adds a marker at `time`, or removes the one already on that frame. */
+  toggleMarker: (time: number) => void
+  removeMarker: (id: string) => void
+  clearMarkers: () => void
 
   setSelected: (ids: { clips?: string[]; texts?: string[]; stickers?: string[]; audios?: string[] }) => void
   clearSelection: () => void
@@ -381,6 +387,13 @@ export const useEditorStore = create<EditorState>()(
       p => ({ ...p, tracks: p.tracks.map(t => t.id === id ? { ...t, ...changes } : t) }),
       true,
     ),
+
+    toggleMarker: (time) => get().mutate(p => ({
+      ...p,
+      markers: applyMarkerToggle(p.markers, time, p.fps, crypto.randomUUID()).markers,
+    })),
+    removeMarker: (id) => get().mutate(p => ({ ...p, markers: p.markers.filter(m => m.id !== id) })),
+    clearMarkers: () => get().mutate(p => ({ ...p, markers: [] })),
 
     setSelected: ({ clips, texts, stickers, audios }) => set({
       selectedClipIds: clips ?? [],

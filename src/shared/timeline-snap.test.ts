@@ -12,7 +12,7 @@ function project(over: Partial<Project> = {}): Project {
     width: 1920, height: 1080, fps: 30, backgroundColor: '#000',
     media: [], tracks: [],
     clips: [], textClips: [], stickerClips: [], audioClips: [],
-    transitions: [], captions: [],
+    transitions: [], captions: [], markers: [],
     ...over,
   }
 }
@@ -124,5 +124,38 @@ describe('snapTime', () => {
     // omission is now the test that pins the fix.
     expect(snapTime(project({ stickerClips: [stickerClip('s', 10, 2)] }), 10.05, 20, PX_PER_SEC)).toBe(10)
     expect(snapTime(project({ stickerClips: [stickerClip('s', 10, 2)] }), 11.95, 20, PX_PER_SEC)).toBe(12)
+  })
+
+  it('treats markers as snap targets', () => {
+    // This is what makes a marker worth placing: a clip dragged near one lands on
+    // it, so cutting to a beat does not depend on aiming at a pixel.
+    const p = project({ markers: [{ id: 'k', time: 10 }] })
+    expect(snapTime(p, 10.05, 20, PX_PER_SEC)).toBe(10)
+    expect(snapTime(p, 9.95, 20, PX_PER_SEC)).toBe(10)
+  })
+
+  it('leaves a drag alone when the nearest marker is outside the threshold', () => {
+    const p = project({ markers: [{ id: 'k', time: 10 }] })
+    expect(snapTime(p, 10 + THRESHOLD * 2, 20, PX_PER_SEC)).toBe(10 + THRESHOLD * 2)
+  })
+
+  it('still snaps to a marker when the dragged clip itself is excluded', () => {
+    // excludeId removes the clip being dragged, not the markers; a clip dragged
+    // onto its own start time should still land on a marker sitting there.
+    const p = project({ clips: [clip('me', 10, 2)], markers: [{ id: 'k', time: 10 }] })
+    expect(snapTime(p, 10.05, 20, PX_PER_SEC, 'me')).toBe(10)
+  })
+
+  it('breaks a tie in favour of a clip edge, because markers sort last', () => {
+    // Candidate order is part of the behaviour and markers were appended rather
+    // than inserted, so the targets that already snapped keep winning ties. Both
+    // distances here are exactly 0.25 - binary fractions, so the tie is real.
+    // The clip's own end edge is at 1.75, outside the 0.5s threshold, so it is
+    // the start edge at 0.75 that competes with the marker.
+    const p = project({
+      clips: [clip('other', 0.75, 1)],
+      markers: [{ id: 'k', time: 1.25 }],
+    })
+    expect(snapTime(p, 1.0, 20, 16)).toBe(0.75)
   })
 })

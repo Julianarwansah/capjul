@@ -13,7 +13,7 @@ function project(over: Partial<Project> = {}): Project {
     width: 1920, height: 1080, fps: 30, backgroundColor: '#000',
     media: [], tracks: [],
     clips: [], textClips: [], stickerClips: [], audioClips: [],
-    transitions: [], captions: [],
+    transitions: [], captions: [], markers: [],
     ...over,
   }
 }

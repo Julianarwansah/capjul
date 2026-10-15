@@ -11,6 +11,7 @@ export type {
   Track,
   Transition,
   Caption,
+  Marker,
   Project,
   ProjectFile,
   Keyframe,

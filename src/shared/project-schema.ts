@@ -163,6 +163,15 @@ export const CaptionSchema = z.object({
   language: z.string().optional(),
 })
 
+// A point in time the editor can snap to and jump to. Markers are an editing aid
+// only - nothing here reaches the export, so a marker can never change a frame.
+// Deliberately no label: a label field with no rename affordance would be another
+// stored value nothing can set, which is the shape of tech debt D7 and D22.
+export const MarkerSchema = z.object({
+  id: z.string(),
+  time: z.number(),
+})
+
 // No updatedAt: it was written once at creation and never maintained. The
 // envelope's savedAt is the honest timestamp.
 export const ProjectSchema = z.object({
@@ -182,9 +191,10 @@ export const ProjectSchema = z.object({
   audioClips: z.array(AudioClipSchema),
   transitions: z.array(TransitionSchema),
   captions: z.array(CaptionSchema),
+  markers: z.array(MarkerSchema).default([]),
 })
 
-export const CURRENT_SCHEMA_VERSION = 4
+export const CURRENT_SCHEMA_VERSION = 5
 
 export const ProjectFileSchema = z.object({
   app: z.literal('capjul'),
@@ -204,5 +214,6 @@ export type AudioClip = z.infer<typeof AudioClipSchema>
 export type Track = z.infer<typeof TrackSchema>
 export type Transition = z.infer<typeof TransitionSchema>
 export type Caption = z.infer<typeof CaptionSchema>
+export type Marker = z.infer<typeof MarkerSchema>
 export type Project = z.infer<typeof ProjectSchema>
 export type ProjectFile = z.infer<typeof ProjectFileSchema>

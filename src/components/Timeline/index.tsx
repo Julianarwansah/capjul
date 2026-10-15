@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { selectHasSelection, useEditorStore } from '../../store/editorStore'
 import { MEDIA_DRAG_MIME, makeAudioClipFromMedia, makeClipFromMedia } from '../../shared/clip-factory'
+import { markerAt } from '../../shared/markers'
 import { TrackLabel } from './ClipItems'
 import { ContextMenu } from './ContextMenu'
+import { MarkerFlags } from './MarkerFlags'
 import { Ruler } from './Ruler'
 import { TimelineToolbar } from './TimelineToolbar'
 import { TrackRow } from './TrackRow'
@@ -21,6 +23,7 @@ export function Timeline() {
     project, currentTime, setCurrentTime, zoom, setZoom, isPlaying,
     addTrack, addClip, addAudioClip,
     splitAtPlayhead, deleteSelection,
+    toggleMarker, removeMarker, clearMarkers,
   } = useEditorStore()
   const hasSelection = useEditorStore(selectHasSelection)
 
@@ -94,9 +97,13 @@ export function Timeline() {
       <TimelineToolbar
         zoom={zoom}
         hasSelection={hasSelection}
+        markerCount={project.markers.length}
+        markerAtPlayhead={!!markerAt(project.markers, currentTime, project.fps)}
         onAddTrack={() => addTrack('video')}
         onSplit={splitAtPlayhead}
         onDelete={deleteSelection}
+        onToggleMarker={() => toggleMarker(currentTime)}
+        onClearMarkers={clearMarkers}
         onZoom={setZoom}
       />
 
@@ -128,16 +135,34 @@ export function Timeline() {
             }
           }}
         >
-          <div style={{ width: totalWidth, minHeight: '100%' }}>
-            <Ruler
-              height={RULER_HEIGHT}
-              duration={timelineDuration}
-              pxPerSec={pxPerSec}
-              currentTime={currentTime}
-              fps={project.fps}
-              onClick={handleRulerClick}
-              onSeek={t => setCurrentTime(Math.min(project.duration, t))}
-            />
+          {/* position: relative is load-bearing: the playhead line over the tracks
+              and the marquee box are absolutely positioned in this div's
+              coordinate space, and useMarqueeSelection adds labelWidth and
+              rulerHeight back precisely so its rect lands here. Without it their
+              containing block is the page, and both draw from the top-left of the
+              window instead of from the ruler. */}
+          <div style={{ width: totalWidth, minHeight: '100%', position: 'relative' }}>
+            {/* The ruler and the marker layer share one sticky wrapper. Markers
+                cannot be children of the ruler: it is role="slider", which must
+                not contain focusable descendants, and a marker's delete button
+                is one. */}
+            <div className="sticky top-0 relative" style={{ height: RULER_HEIGHT, zIndex: 10 }}>
+              <Ruler
+                duration={timelineDuration}
+                pxPerSec={pxPerSec}
+                currentTime={currentTime}
+                fps={project.fps}
+                onClick={handleRulerClick}
+                onSeek={t => setCurrentTime(Math.min(project.duration, t))}
+              />
+              <MarkerFlags
+                markers={project.markers}
+                pxPerSec={pxPerSec}
+                fps={project.fps}
+                height={RULER_HEIGHT}
+                onRemove={removeMarker}
+              />
+            </div>
 
             {/* Marquee selection box */}
             {marquee && (

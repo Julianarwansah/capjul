@@ -36,6 +36,10 @@ const migrations: Record<number, (raw: Raw) => Raw> = {
   // 'linear' is exactly the interpolation a v3 file was authored against, so this
   // step exists only to declare that v3 is understood rather than too old.
   3: raw => raw,
+  // v5 adds Project.markers, an editing aid with no export effect, so a v4 file
+  // simply has none. The array is spelled out rather than left to the schema
+  // default so that a hand-edited file carrying a non-array cannot slip through.
+  4: raw => ({ ...raw, markers: Array.isArray(raw.markers) ? raw.markers : [] }),
 }
 
 /**

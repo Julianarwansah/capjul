@@ -20,7 +20,6 @@ function tickInterval(pxPerSec: number): number {
 }
 
 export interface RulerProps {
-  height: number
   /** Display length of the ruler, which floors short projects so it stays usable. */
   duration: number
   pxPerSec: number
@@ -31,7 +30,12 @@ export interface RulerProps {
   onSeek: (t: number) => void
 }
 
-export function Ruler({ height, duration, pxPerSec, currentTime, fps, onClick, onSeek }: RulerProps) {
+/**
+ * The ruler fills its wrapper, which owns the height and the sticky positioning.
+ * It used to own both itself; they moved out so that the marker layer could be a
+ * sibling rather than a descendant, which a role="slider" element cannot have.
+ */
+export function Ruler({ duration, pxPerSec, currentTime, fps, onClick, onSeek }: RulerProps) {
   const interval = tickInterval(pxPerSec)
   const ticks = []
   for (let t = 0; t <= duration; t += interval) {
@@ -79,9 +83,8 @@ export function Ruler({ height, duration, pxPerSec, currentTime, fps, onClick, o
       aria-valuemax={duration}
       aria-valuenow={currentTime}
       aria-valuetext={formatTime(currentTime)}
-      className="sticky top-0 relative cursor-pointer"
+      className="absolute inset-0 cursor-pointer"
       style={{
-        height, zIndex: 10,
         background: 'var(--color-bg-panel)',
         borderBottom: '1px solid var(--color-border)',
       }}

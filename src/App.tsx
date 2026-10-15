@@ -8,6 +8,7 @@ import { ExportDialog } from './components/ExportDialog'
 import { ProjectSettings } from './components/ProjectSettings'
 import { useEditorStore } from './store/editorStore'
 import { stepFrames } from './shared/frame-time'
+import { neighborMarker } from './shared/markers'
 import type { ElectronApi, RecoveryInfo } from './shared/ipc-contract'
 
 declare global {
@@ -86,6 +87,7 @@ export default function App() {
     undo, redo, setIsPlaying, isPlaying,
     currentTime, setCurrentTime, project,
     splitAtPlayhead, duplicateSelection, deleteSelection,
+    toggleMarker,
   } = useEditorStore()
 
   // Keyboard shortcuts. This is the only place global keys are bound; the
@@ -162,11 +164,27 @@ export default function App() {
       // Next frame
       e.preventDefault()
       seekBy(1)
+    } else if (e.code === 'KeyM' && !mod) {
+      // Toggle a marker on the playhead's frame. One binding both adds and
+      // removes, so undoing a marker never means aiming at a 7px flag. Cmd is
+      // excluded because Cmd+M minimises the window on macOS.
+      e.preventDefault()
+      toggleMarker(currentTime)
+    } else if (e.code === 'BracketLeft' || e.code === 'BracketRight') {
+      // Jump to the previous or next marker. Swallowed only when there is one to
+      // jump to, so the keys stay free for anything else in an unmarked project.
+      const target = neighborMarker(
+        project.markers, currentTime, e.code === 'BracketRight' ? 1 : -1,
+      )
+      if (target) {
+        e.preventDefault()
+        setCurrentTime(target.time)
+      }
     }
   }, [
     isPlaying, currentTime, project,
     setIsPlaying, undo, redo, setCurrentTime,
-    splitAtPlayhead, duplicateSelection, deleteSelection,
+    splitAtPlayhead, duplicateSelection, deleteSelection, toggleMarker,
   ])
 
   useEffect(() => {

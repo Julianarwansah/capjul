@@ -43,5 +43,6 @@ export function createDefaultProject(): Project {
     audioClips: [],
     transitions: [],
     captions: [],
+    markers: [],
   }
 }

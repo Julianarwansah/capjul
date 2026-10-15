@@ -129,7 +129,7 @@ function twoClips(over: Partial<Project> = {}): Project {
       clip({ id: 'A', mediaId: 'm1', trackId: 't0', startTime: 0, duration: 4 }),
       clip({ id: 'B', mediaId: 'm2', trackId: 't0', startTime: 4, duration: 3 }),
     ],
-    textClips: [], stickerClips: [], audioClips: [], captions: [],
+    textClips: [], stickerClips: [], audioClips: [], captions: [], markers: [],
     transitions: [{ id: 'tr1', clipId: 'A', type: 'fade', duration: 1 }],
     ...over,
   }

@@ -22,3 +22,21 @@ export function stepFrames(t: number, fps: number, frames: number): number {
 export function frameIndexAt(t: number, fps: number): number {
   return fps > 0 ? Math.round(t * fps) : 0
 }
+
+/**
+ * Timecode as `M:SS:FF`.
+ *
+ * The frame component is there because `M:SS` cannot distinguish two markers
+ * inside the same second, and marker positions are the one place the UI names an
+ * exact frame instead of a span. Deriving all three fields from the frame index
+ * rather than from `t` keeps the readout on the same grid `stepFrames` walks, and
+ * means the frames field cannot round up to `fps` at a second boundary.
+ */
+export function formatTimecode(t: number, fps: number): string {
+  const framesPerSecond = Math.max(1, Math.round(fps))
+  const total = frameIndexAt(t, fps)
+  const m = Math.floor(total / (framesPerSecond * 60))
+  const s = Math.floor((total / framesPerSecond) % 60)
+  const f = total % framesPerSecond
+  return `${m}:${String(s).padStart(2, '0')}:${String(f).padStart(2, '0')}`
+}

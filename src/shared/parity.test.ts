@@ -155,7 +155,7 @@ describe('media layer pose parity', () => {
     media: [media(type)],
     tracks: [{ id: 't0', type: 'video', label: 'Main', muted: false, locked: false, height: 64 }],
     clips: [mediaClip(over)],
-    textClips: [], stickerClips: [], audioClips: [], transitions: [], captions: [],
+    textClips: [], stickerClips: [], audioClips: [], transitions: [], captions: [], markers: [],
   })
 
   const POSE = { x: 0.2, y: -0.15, scaleX: 1.5, scaleY: 0.5, rotation: 30, opacity: 0.7 }

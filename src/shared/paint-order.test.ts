@@ -53,7 +53,7 @@ function project(over: Partial<Project> = {}): Project {
     width: 1280, height: 720, fps: 30, backgroundColor: '#000000',
     media: [media('m1'), media('m2'), media('img1', 'image')],
     tracks: [track('t0', 'video'), track('t1', 'video')],
-    clips: [], textClips: [], stickerClips: [], audioClips: [], transitions: [], captions: [],
+    clips: [], textClips: [], stickerClips: [], audioClips: [], transitions: [], captions: [], markers: [],
     ...over,
   }
 }

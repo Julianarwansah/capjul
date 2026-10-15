@@ -10,13 +10,14 @@ export const SNAP_PX = 8
  * The nearest snap target to `t`, or `t` unchanged when nothing is within
  * SNAP_PX at this zoom.
  *
- * Targets are the playhead, zero, and the start and end of every other clip.
- * `excludeId` stops the dragged clip snapping to itself.
+ * Targets are the playhead, zero, the start and end of every other clip, and
+ * every marker. `excludeId` stops the dragged clip snapping to itself.
  *
  * Ties go to whichever target comes first, so the candidate order below is part
- * of the behaviour: playhead, zero, then video, audio, text and sticker clips.
- * Stickers were added last (tech debt D19) so that the ordering of the three
- * kinds that already snapped could not change.
+ * of the behaviour: playhead, zero, then video, audio, text and sticker clips,
+ * then markers. Stickers were added last (tech debt D19) and markers after them,
+ * each time appended rather than inserted so the ordering of the targets that
+ * already snapped could not change.
  */
 export function snapTime(
   project: Project,
@@ -33,6 +34,7 @@ export function snapTime(
     if (c.id === excludeId) continue
     snaps.push(c.startTime, c.startTime + c.duration)
   }
+  for (const m of project.markers) snaps.push(m.time)
 
   let best = t
   let bestDist = threshold
