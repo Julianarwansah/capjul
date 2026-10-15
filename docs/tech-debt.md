@@ -1079,3 +1079,28 @@ Kept here for traceability; each has a commit.
   absent, which is the only environment where the app could not export anyway.
   Any future change to the video or audio graph inherits this check for free,
   which is the point of putting it in now rather than when a bad filter ships.
+- Dragging one selected clip now moves the whole selection. Marquee selection and
+  Ctrl-click promised group operations and delete/duplicate honoured them, but a
+  drag dissolved the selection into a single clip. Origins are captured at
+  mousedown and each move recomputes origin + delta, so snapping never
+  accumulates; `snapTime` takes the whole selection as exclusions because a
+  group keeps its internal offsets and a member's own moving edge would otherwise
+  jitter the gesture against itself; clamping is per clip so a leftward drag
+  compresses the group at timeline zero instead of tearing it; locked tracks are
+  absent from the result because a lock means the track does not move even when
+  its clip is selected. One store action, coalesced, so a gesture of any size is
+  one undo step.
+- **Clips on the same track used to stack vertically and overflow the row, and
+  one-clip-per-track hid it.** `.timeline-clip` set `position: relative` in
+  index.css; author CSS outside a layer beats Tailwind's layered utilities, so it
+  overrode the element's `absolute` class and turned `left`/`top` into flow
+  offsets, with clips laying out as blocks inside the row. Every earlier timeline
+  verification happened to place at most one clip per track, or aimed at the
+  first clip, so nothing saw it. The group-drag probe found it by accident: the
+  second clip's bounding rect and `elementFromPoint` disagreed, because most of
+  the rect was outside the row that clipped it, and a screenshot made it obvious.
+  The rule existed only to give the `::before` shine a positioned ancestor, which
+  `absolute` already provides. The lesson generalises and is now in the clip's
+  CSS as a comment: in this stylesheet, an unlayered rule silently outranks a
+  utility class, so any `position` in index.css on an element that also carries a
+  Tailwind position utility is a bug waiting to be hidden by the common case.
