@@ -44,34 +44,31 @@ the fallback engages. Mapping the CSS presets onto ffmpeg filters for the
 fallback is still ~0.5 day of work and still open; it is just much less urgent
 than "presets do not export" sounded.
 
-### D15 — Transitions are preview-only and vanish on export
-`TransitionsPanel` creates real `project.transitions` entries, including
-"apply to all" across a track. The preview renders them through
-`transitionStyles()` in `shared/transitions.ts` — 12 types: fade, dissolve, four
-wipes, two slides, two zooms, blur and flash — applied in `MediaLayers.tsx`, with
-a marker drawn on the cut in `TrackRow.tsx`. Nothing on the export side ever
-reads them: `transitions` appears nowhere in `render-plan.ts`, `scene.ts` or
-`compositor.ts`, only in `project-schema.ts` and test fixtures.
+### D15 — The filtergraph engine still hard-cuts where the preview blends
+**Narrowed from "transitions are preview-only".** The compositor — the default
+engine — now renders all twelve types: `shared/transition-pose.ts` describes a
+blend once, the preview maps it to CSS and `drawSceneFrame` maps it to canvas
+calls, with a parity test walking every type at five progress values. What
+remains is the fallback engine only, and the fallback warning names it.
 
-So a crossfade the user picked, saw working in the preview, and then exported is
-silently dropped. Unlike D7's disabled sliders there is no hint that the feature
-does not reach the output — the preview actively demonstrates it working, which
-makes this a worse promise to break.
-Impact: user trust and output correctness. This is a whole feature, not a field.
-Effort: 2-3 days, and larger than first estimated. The original note assumed this
-was a filtergraph problem. It is not: `scene.ts` and `compositor.ts` contain zero
-references to transitions either, and the compositor is the **default** export
-engine. So both engines have to learn transitions independently, and then agree.
-Concretely: the scene model has to carry transitions and widen both clips'
-windows by half the duration (the preview already straddles the cut this way),
-`drawMediaLayer` has to paint two clips at complementary alpha, `render-plan` has
-to pair adjacent streams rather than compile each clip to an independent trimmed
-stream, and `parity.test.ts` has to pin that the two produce the same blend at
-the same instant. `xfade`, `fade` and `overlay` are all confirmed present in
-ffmpeg 8.1.1, so no capability is missing — only the assembly.
-Owner: next engineering slot; **Julian** if the answer is to cut transitions from
-the UI instead. Cutting is roughly an hour and would close the same broken
-promise from the other direction.
+`render-plan.ts` compiles each clip to an independent trimmed stream and never
+pairs adjacent ones, so `xfade` is unused. The assembly is the remaining work,
+and it is not uniform across the twelve types:
+- Clean `xfade` equivalents exist for fade (`fade`), dissolve (`dissolve`), the
+  four wipes and the two slides (`wipeleft`, `slideright`, …).
+- `zoom-in` maps to `zoomin`; `zoom-out`, `blur` and `flash` have no equivalent —
+  `zoomout` does not exist, `hblur` is a different effect, and a flash to white
+  is `fadewhite` only in spirit. Those three need either a scale/overlay
+  assembly or an honest per-type fallback to a crossfade, which is a product
+  decision as much as a filtergraph one.
+- `xfade` also requires the two streams to be the same size, format and frame
+  rate, which the current independent-trim graph does not guarantee.
+Impact: a user who lands on the fallback gets hard cuts where the preview showed
+blends, and is now told so in the warning rather than finding out from the file.
+Effort: ~1 day for the eight types with clean equivalents and the stream-pairing
+rewrite; the other three are a separate decision.
+Owner: next engineering slot; **Julian** for what zoom-out, blur and flash should
+degrade to on the fallback.
 
 ### D23 — Three overlay effects and chroma key are still preview-only
 **Narrowed from its original scope.** The nine CSS-filter effects (blur, glow,
@@ -920,3 +917,49 @@ Kept here for traceability; each has a commit.
   the canvas then renders `blur(5px)` as a blur is a browser guarantee, not app
   code. Confirming it visually needs a real export, which needs Electron and a
   media file; the parity harness is structural by design and stays that way.
+- Transitions render in the compositor, the default export engine (D15 narrowed
+  to the filtergraph fallback). `shared/transition-pose.ts` describes a blend once
+  — alpha, translation in canvas fractions, uniform scale, blur as a fraction of
+  canvas width, inset clip — and the two engines map it: `poseToCss` for the
+  preview, canvas calls in `drawMediaLayer` for the export. A parity test walks
+  all twelve types at five progress values asserting the CSS inset, blur and
+  translate describe the same rectangle, radius and offset the canvas geometry
+  does. Two mappings of one pose is exactly where this codebase diverged before
+  (D18), so the walk is the point, not the decoration.
+- **The export draw path became testable in node, which is what made this
+  shippable with evidence.** `drawSceneFrame` and the three per-kind draw helpers
+  were closures inside `prepareScene`, over the maps of decoded media it builds,
+  and `prepareScene` needs a live DOM — so the code deciding what an exported
+  frame contains had no test at all. The helpers are now module-level over an
+  injected `SceneSources`, and sixteen tests drive them with a recording canvas
+  context: paint order, contain fit, pose order, alpha, filter, save/restore
+  balance, and seven transition cases — both clips at halved alpha at the
+  midpoint, the incoming clip drawn before its own time range begins, wipes
+  clipping to complementary halves, slides offsetting by canvas widths, blur
+  reaching `ctx.filter` at canvas scale, and a hard cut outside the window.
+  Those tests assert the exact call sequence the export pump issues; they are as
+  close to the encoded pixels as node gets, and the commit says plainly that they
+  are not the pixels.
+- Two supporting changes the blend required. The `Scene` carries its transitions
+  and media layers carry their clip id, because a blend addresses its two ends
+  and two clips routinely share one media file. And `seekActiveVideos` now seeks
+  the incoming clip during the first half of the window, when it is not yet
+  inside its own time range — without that the blend would have shown whatever
+  frame the element last held, a bug no amount of draw-order correctness would
+  have hidden.
+- **The preview's transition behaviour changed in two ways, both fixes.** A pose
+  now composes with the clip's own pose and grading instead of replacing them:
+  the old style object was spread over the top, so a clip lost its position,
+  rotation, scale and filter for the length of its own transition — verified in
+  the browser by a rotated clip keeping `rotate(90deg)` mid-slide. And blur is
+  resolution-relative (`cqw` in the preview, fraction times canvas width on the
+  canvas) rather than a fixed 16px, so a 4K export blurs proportionally; at a
+  1280-wide canvas it is exactly the old value.
+- The filtergraph fallback warning now names what it drops — transitions, clip
+  effects, preset filters — instead of the older "per-clip filters may differ
+  slightly", which understated it before and would have badly understated it now.
+- Verified in the browser with nine checks reading the preview DOM mid-blend:
+  opacities at the window's start, middle and end; no incoming element outside
+  the window; complementary wipe insets; the slide's transform wrapping outside
+  the clip pose in canvas order. 9/9, on top of the 16 mock-context and 19 pose
+  tests.
